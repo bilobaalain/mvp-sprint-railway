@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { CollecteCard } from "@/components/CollecteCard";
 import { NearestCollecte } from "@/components/NearestCollecte";
-import { withDistances } from "@/lib/geo";
+import { withDistances, byDistance } from "@/lib/geo";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const HERO_IMG = "https://images.pexels.com/photos/11583513/pexels-photo-11583513.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
@@ -24,7 +24,8 @@ const Upcoming = () => {
 
   if (!all) return <div className="grid md:grid-cols-3 gap-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}</div>;
   if (!all.length) return <p data-testid="upcoming-empty" className="text-slate-500">Aucune collecte à venir pour le moment.</p>;
-  const list = withDistances(all.slice(0, 3), user?.residence);
+  // Avec une commune renseignée : les 3 collectes les plus proches, sinon les 3 prochaines
+  const list = user?.residence ? byDistance(withDistances(all, user.residence)).slice(0, 3) : all.slice(0, 3);
   return (
     <div className="space-y-4">
       {user?.residence && <NearestCollecte collectes={all} />}
@@ -95,8 +96,8 @@ export default function Home() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 space-y-8">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0D9488]">Sans compte</p>
-            <h2 className="font-heading text-2xl sm:text-3xl font-bold tracking-tight text-[#0F172A]">Les 3 prochaines collectes</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0D9488]">{user?.residence ? `Près de ${user.residence.commune}` : "Sans compte"}</p>
+            <h2 className="font-heading text-2xl sm:text-3xl font-bold tracking-tight text-[#0F172A]">{user?.residence ? "Les 3 collectes les plus proches" : "Les 3 prochaines collectes"}</h2>
           </div>
           <Link to="/collectes" data-testid="home-all-collectes-link" className="text-sm font-semibold text-[#0D9488] hover:underline whitespace-nowrap">Toutes les collectes →</Link>
         </div>

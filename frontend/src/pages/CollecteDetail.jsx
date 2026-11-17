@@ -6,7 +6,7 @@ import {
 import { toast } from "sonner";
 import { api, errMsg } from "@/lib/api";
 import { fmtDate, fmtHours } from "@/lib/format";
-import { distanceKm, fmtKm } from "@/lib/geo";
+import { distanceKm, fmtKm, refPoint, repereLabel } from "@/lib/geo";
 import { useAuth } from "@/context/AuthContext";
 import { SingleMap } from "@/components/CollecteMap";
 import { PlacesBadge } from "@/components/CollecteCard";
@@ -269,7 +269,7 @@ export default function CollecteDetail() {
             <Info icon={MapPin} label="Lieu" testid="collecte-detail-lieu">{c.lieu}, {c.commune}</Info>
             {user?.residence && (
               <Info icon={Navigation} label={`Distance depuis ${user.residence.commune}`} testid="collecte-detail-distance">
-                {fmtKm(distanceKm(user.residence, c))} à vol d'oiseau
+                {fmtKm(distanceKm(refPoint(user.residence), c))} à vol d'oiseau depuis {repereLabel(user.residence)}
               </Info>
             )}
             <Info icon={Clock} label="Horaire" testid="collecte-detail-horaire">{fmtHours(c)}</Info>
