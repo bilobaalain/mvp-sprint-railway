@@ -174,6 +174,10 @@ class ParticipantOut(BaseModel):
     present: bool
 
 
+class CollecteEditIn(CollecteIn):
+    motif: str = Field(default="", max_length=500)
+
+
 class CollecteOut(BaseModel):
     id: str
     titre: str
@@ -200,6 +204,7 @@ class CollecteOut(BaseModel):
     est_inscrit: bool = False
     est_present: bool = False
     est_organisateur: bool = False
+    modifiable: bool = False
 
 
 # ---------- Date helpers ----------
@@ -224,6 +229,31 @@ def statut(doc: dict) -> str:
     return "en_cours" if now < end_dt(doc) else "terminee"
 
 
+EDIT_LOCK = timedelta(minutes=30)
+
+
+def modifiable(doc: dict) -> bool:
+    """Une collecte n'est plus modifiable à partir de 30 min avant sa fin."""
+    return datetime.now(PARIS) < end_dt(doc) - EDIT_LOCK
+
+
+CHAMP_LABELS = {
+    "titre": "Titre", "lieu": "Lieu", "commune": "Commune", "point_rdv": "Point de rendez-vous",
+    "date": "Date", "heure_debut": "Heure de début", "heure_fin": "Heure de fin", "places": "Nombre de places",
+    "materiel_fourni": "Matériel fourni", "materiel_a_apporter": "À apporter", "description": "Description",
+}
+
+
+def fmt_champ(k: str, v) -> str:
+    if v in (None, ""):
+        return "—"
+    if k == "date":
+        return date.fromisoformat(v).strftime("%d/%m/%Y")
+    if k in ("heure_debut", "heure_fin"):
+        return str(v).replace(":", "h")
+    return str(v)
+
+
 def collecte_out(doc: dict, user_id: Optional[str] = None) -> CollecteOut:
     inscrits = doc.get("inscrits", [])
     restantes = max(doc["places"] - len(inscrits), 0)
@@ -244,6 +274,7 @@ def collecte_out(doc: dict, user_id: Optional[str] = None) -> CollecteOut:
         est_inscrit=bool(user_id and user_id in inscrits),
         est_present=bool(user_id and presents and user_id in presents),
         est_organisateur=bool(user_id and user_id == doc.get("organisateur_id")),
+        modifiable=bool(user_id and user_id == doc.get("organisateur_id")) and modifiable(doc),
     )
 
 
@@ -409,6 +440,19 @@ def send_parent_decision_email(email: str, prenom: str, accepte: bool) -> bool:
     return send_email(email, "Ton inscription n'a pas été autorisée", _layout(
         f"Bonjour {escape(prenom)},",
         "<p>Ton parent n'a pas donné son accord : ton compte et tes données ont été supprimés.</p>"))
+
+
+def send_modification_email(email: str, prenom: str, c: dict, changes: list, motif: str) -> bool:
+    rows = "".join(
+        f"<li><b>{escape(label)}</b> : {'modifié' if old is None else f'<s>{escape(old)}</s> → <b>{escape(new)}</b>'}</li>"
+        for label, old, new in changes)
+    return send_email(email, f"Modification : {c['titre']}", _layout(
+        f"Bonjour {escape(prenom)},",
+        f"""<p>L'organisateur a modifié une collecte à laquelle vous êtes inscrit·e.</p>
+      <p><b>Motif :</b> {escape(motif)}</p>
+      <p><b>Ce qui change :</b></p><ul>{rows}</ul>
+      <p>Si la nouvelle version ne vous convient plus, vous pouvez vous désinscrire depuis la fiche pour libérer votre place.</p>"""
+        + _collecte_block(c)))
 
 
 def send_reset_email(email: str, prenom: str, token: str) -> bool:
@@ -676,6 +720,47 @@ async def create_collecte(body: CollecteIn, user: dict = Depends(require_user)):
     }
     await db.collectes.insert_one(doc)
     return collecte_out(doc, user["id"])
+
+
+# Modification d'une collecte par son organisateur, bloquée 30 min avant la fin ;
+# les inscrits reçoivent le motif et le détail des changements par e-mail.
+@api_router.put("/collectes/{collecte_id}", response_model=CollecteOut)
+async def modifier_collecte(collecte_id: str, body: CollecteEditIn, background: BackgroundTasks,
+                            user: dict = Depends(require_user)):
+    doc = await get_own_collecte(collecte_id, user)
+    if not modifiable(doc):
+        raise HTTPException(status_code=409, detail="Modification impossible à moins de 30 min de la fin de la collecte")
+    now = datetime.now(PARIS)
+    if body.heure_fin <= body.heure_debut:
+        raise HTTPException(status_code=422, detail="L'heure de fin doit être après l'heure de début")
+    new = {**body.model_dump(exclude={"motif"}), "date": body.date.isoformat()}
+    if end_dt(new) - EDIT_LOCK <= now:
+        raise HTTPException(status_code=422, detail="La nouvelle date et l'heure de fin doivent être dans le futur")
+    inscrits = doc.get("inscrits", [])
+    if body.places < len(inscrits):
+        raise HTTPException(status_code=422, detail=f"Il y a déjà {len(inscrits)} inscrits : le nombre de places ne peut pas être inférieur")
+
+    changes = [(CHAMP_LABELS[k], fmt_champ(k, doc.get(k)), fmt_champ(k, new[k]))
+               for k in CHAMP_LABELS if str(doc.get(k, "")) != str(new[k])]
+    if (round(doc["lat"], 5), round(doc["lng"], 5)) != (round(body.lat, 5), round(body.lng, 5)):
+        changes.append(("Emplacement sur la carte", None, None))
+    if not changes:
+        raise HTTPException(status_code=422, detail="Aucune modification à enregistrer")
+    motif = body.motif.strip()
+    if inscrits and len(motif) < 5:
+        raise HTTPException(status_code=422, detail="Indiquez le motif de la modification : il sera envoyé aux inscrits")
+
+    update = {"$set": new, "$push": {"modifications": {
+        "le": datetime.now(timezone.utc).isoformat(), "motif": motif, "champs": [c[0] for c in changes]}}}
+    if doc["date"] != new["date"] or doc["heure_debut"] != new["heure_debut"]:
+        update["$set"]["rappels_envoyes"] = []  # le rappel J-1 repartira pour le nouvel horaire
+    updated = await db.collectes.find_one_and_update({"id": collecte_id}, update,
+                                                     projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+    if inscrits:
+        users = await db.users.find({"id": {"$in": inscrits}}, {"_id": 0, "email": 1, "prenom": 1}).to_list(500)
+        for u in users:
+            background.add_task(send_modification_email, u["email"], u["prenom"], updated, changes, motif)
+    return collecte_out(updated, user["id"])
 
 
 @api_router.post("/collectes/{collecte_id}/inscription", response_model=CollecteOut)

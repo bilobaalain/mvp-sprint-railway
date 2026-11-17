@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import {
-  MapPin, Clock, Flag, Package, Backpack, Users, CheckCircle2, ArrowLeft, ShieldAlert, Scale, ShoppingBag, ClipboardCheck,
+  MapPin, Clock, Flag, Package, Backpack, Users, CheckCircle2, ArrowLeft, ShieldAlert, Scale, ShoppingBag, ClipboardCheck, Pencil, Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, errMsg } from "@/lib/api";
@@ -256,6 +256,13 @@ export default function CollecteDetail() {
             <Info icon={Package} label="Matériel fourni" testid="collecte-detail-equipment">{c.materiel_fourni}</Info>
             <Info icon={Backpack} label="À apporter" testid="collecte-detail-bring">{c.materiel_a_apporter}</Info>
             {!c.est_organisateur && <RegisterBlock c={c} onDone={setC} />}
+            {c.est_organisateur && (c.modifiable ? (
+              <Button asChild data-testid="collecte-edit-button" variant="outline" className="w-full rounded-full">
+                <Link to={`/collectes/${c.id}/modifier`}><Pencil size={16} className="mr-2" /> Modifier la collecte</Link>
+              </Button>
+            ) : (
+              <p data-testid="collecte-edit-locked" className="flex items-center gap-2 text-sm text-slate-500"><Lock size={14} /> Modification impossible à moins de 30 min de la fin.</p>
+            ))}
           </Card>
           {c.est_organisateur && <OrganizerPanel c={c} onDone={setC} />}
         </aside>

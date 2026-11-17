@@ -28,6 +28,7 @@ function App() {
               <Route path="/collectes" element={<Collectes />} />
               <Route path="/collectes/:id" element={<CollecteDetail />} />
               <Route path="/publier" element={<Publish />} />
+              <Route path="/collectes/:id/modifier" element={<Publish />} />
               <Route path="/inscription" element={<Signup />} />
               <Route path="/connexion" element={<Login />} />
               <Route path="/mot-de-passe-oublie" element={<ForgotPassword />} />

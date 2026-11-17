@@ -123,4 +123,26 @@ with TestClient(server.app) as c:
     assert c.post(f"/api/autorisation-parentale/{tok2}", json={"decision": "refuser"}).status_code == 200
     assert c.get("/api/auth/me", headers=H(mia["token"])).status_code in (401, 404) or c.get("/api/auth/me", headers=H(mia["token"])).json() is None
     assert c.post("/api/auth/login", json={"email": "mia@x.fr", "password": "secret1"}).status_code == 401
-    print("#17 autorisation parentale OK — tout est vert")
+    print("#17 autorisation parentale OK")
+    # Modification d'une collecte par l'organisateur
+    o3 = reg("orga3@x.fr", "organisateur"); r3 = reg("ram3@x.fr", "ramasseur")
+    body = {"titre": "Plage propre", "lieu": "Plage", "commune": "Brest", "point_rdv": "Parking", "lat": 48.4, "lng": -4.4, "date": future, "heure_debut": "09:00", "heure_fin": "11:00", "places": 5}
+    col3 = c.post("/api/collectes", headers=H(o3["token"]), json=body).json()
+    assert col3["modifiable"] is True
+    c.post(f"/api/collectes/{col3['id']}/inscription", headers=H(r3["token"]))
+    assert c.put(f"/api/collectes/{col3['id']}", headers=H(r3["token"]), json={**body, "motif": "test test"}).status_code == 403
+    assert c.put(f"/api/collectes/{col3['id']}", headers=H(o3["token"]), json={**body, "heure_debut": "10:00"}).status_code == 422  # motif manquant
+    assert c.put(f"/api/collectes/{col3['id']}", headers=H(o3["token"]), json={**body, "motif": "rien ne change"}).status_code == 422
+    assert c.put(f"/api/collectes/{col3['id']}", headers=H(o3["token"]), json={**body, "places": 0, "motif": "moins de places"}).status_code == 422
+    sent.clear()
+    r = c.put(f"/api/collectes/{col3['id']}", headers=H(o3["token"]), json={**body, "heure_debut": "10:00", "point_rdv": "Cale nord", "lat": 48.41, "motif": "Marée haute à 9h"})
+    assert r.status_code == 200, r.text and r.json()["heure_debut"] == "10:00"
+    m = [x for x in sent if x[0] == "ram3@x.fr"]; assert m and "Marée haute à 9h" in m[0][2] and "Cale nord" in m[0][2] and "Emplacement" in m[0][2], sent
+    # verrou 30 min avant la fin
+    soon = datetime.now(P) + timedelta(minutes=20)
+    async def near_end(): await server.db.collectes.update_one({"id": col3["id"]}, {"$set": {"date": soon.date().isoformat(), "heure_debut": "00:00", "heure_fin": soon.strftime("%H:%M")}})
+    c.portal.call(near_end)
+    if soon.date() == datetime.now(P).date():
+        assert c.get(f"/api/collectes/{col3['id']}", headers=H(o3["token"])).json()["modifiable"] is False
+        assert c.put(f"/api/collectes/{col3['id']}", headers=H(o3["token"]), json={**body, "motif": "trop tard"}).status_code == 409
+    print("modification de collecte OK — tout est vert")
