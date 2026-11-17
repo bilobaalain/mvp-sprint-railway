@@ -37,6 +37,7 @@ INDEXES: dict[str, list[IndexModel]] = {
     "users": [
         IndexModel([("id", ASCENDING)], name="id", unique=True),
         IndexModel([("email", ASCENDING)], name="email", unique=True),
+        IndexModel([("parent_token_hash", ASCENDING)], name="parent_token", sparse=True),
     ],
     "collectes": [
         IndexModel([("id", ASCENDING)], name="id", unique=True),
@@ -80,6 +81,16 @@ class RegisterIn(BaseModel):
     prenom: str = Field(min_length=1, max_length=60)
     role: Literal["ramasseur", "organisateur"] = "ramasseur"
     consentement: bool = False
+    date_naissance: date
+    email_parent: Optional[EmailStr] = None
+
+
+class ParentDecisionIn(BaseModel):
+    decision: Literal["accepter", "refuser"]
+
+
+class ParentResendIn(BaseModel):
+    email_parent: Optional[EmailStr] = None
 
 
 class LoginIn(BaseModel):
@@ -114,6 +125,9 @@ class UserOut(BaseModel):
     email: str
     prenom: str
     role: str
+    # Ticket #17 : un compte mineur reste « en_attente_parent » jusqu'à l'accord du parent
+    statut: Literal["actif", "en_attente_parent"] = "actif"
+    email_parent: Optional[str] = None
 
 
 class AuthOut(BaseModel):
@@ -247,7 +261,8 @@ async def optional_user(request: Request) -> Optional[dict]:
         claims = jwt.decode(auth[7:], JWT_SECRET, algorithms=["HS256"])
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Session expirée, reconnectez-vous")
-    return await db.users.find_one({"id": claims["sub"]}, {"_id": 0, "password_hash": 0})
+    return await db.users.find_one({"id": claims["sub"]},
+                                   {"_id": 0, "password_hash": 0, "parent_token_hash": 0, "parent_token_expires": 0})
 
 
 async def require_user(user: Optional[dict] = Depends(optional_user)) -> dict:
@@ -257,7 +272,22 @@ async def require_user(user: Optional[dict] = Depends(optional_user)) -> dict:
 
 
 def user_out(u: dict) -> UserOut:
-    return UserOut(id=u["id"], email=u["email"], prenom=u["prenom"], role=u["role"])
+    return UserOut(id=u["id"], email=u["email"], prenom=u["prenom"], role=u["role"],
+                   statut=u.get("statut", "actif"), email_parent=u.get("email_parent"))
+
+
+MAJORITE = 18
+PARENT_LINK_DAYS = 7
+
+
+def age_le(naissance: date, jour: date) -> int:
+    return jour.year - naissance.year - ((jour.month, jour.day) < (naissance.month, naissance.day))
+
+
+def new_parent_token() -> tuple[str, dict]:
+    token = secrets.token_urlsafe(32)
+    return token, {"parent_token_hash": hashlib.sha256(token.encode()).hexdigest(),
+                   "parent_token_expires": (datetime.now(timezone.utc) + timedelta(days=PARENT_LINK_DAYS)).isoformat()}
 
 
 def hash_password(pw: str) -> str:
@@ -356,6 +386,31 @@ def send_reminder_email(email: str, prenom: str, c: dict) -> bool:
         "<p>Petit rappel : vous participez à cette collecte dans moins de 24 h.</p>" + _collecte_block(c)))
 
 
+def send_parent_request_email(email_parent: str, prenom: str, token: str) -> bool:
+    link = f"{FRONTEND_URL}/autorisation-parentale?token={token}"
+    consignes = "".join(f"<li>{escape(x)}</li>" for x in CONSIGNES_SECURITE)
+    return send_email(email_parent, f"{prenom} souhaite participer aux collectes de la rade", _layout(
+        "Votre accord est nécessaire",
+        f"""<p>Bonjour,</p>
+      <p><b>{escape(prenom)}</b> vient de créer un compte sur <b>Ensemble pour sauver la rade</b>, le site des collectes
+      citoyennes de déchets sur le littoral de la rade de Brest, en indiquant votre adresse comme celle d'un parent.</p>
+      <p>Comme {escape(prenom)} est mineur·e, son compte ne pourra servir à s'inscrire aux collectes qu'avec votre accord.
+      Les collectes se déroulent en plein air, encadrées par un organisateur, avec ces consignes :</p><ul>{consignes}</ul>
+      <p><a href="{link}"><b>Donner ou refuser mon accord</b></a></p>
+      <p>Ce lien est valable {PARENT_LINK_DAYS} jours. Si vous ne connaissez pas {escape(prenom)}, refusez simplement : le compte sera supprimé.</p>"""))
+
+
+def send_parent_decision_email(email: str, prenom: str, accepte: bool) -> bool:
+    if accepte:
+        return send_email(email, "Ton compte est activé", _layout(
+            f"C'est parti, {escape(prenom)} !",
+            f"""<p>Ton parent a donné son accord : tu peux maintenant t'inscrire aux collectes.</p>
+          <p><a href="{FRONTEND_URL}/collectes">Voir les prochaines collectes</a></p>"""))
+    return send_email(email, "Ton inscription n'a pas été autorisée", _layout(
+        f"Bonjour {escape(prenom)},",
+        "<p>Ton parent n'a pas donné son accord : ton compte et tes données ont été supprimés.</p>"))
+
+
 def send_reset_email(email: str, prenom: str, token: str) -> bool:
     link = f"{FRONTEND_URL}/reinitialiser?token={token}"
     return send_email(email, "Réinitialisation de votre mot de passe", _layout(
@@ -413,8 +468,21 @@ async def register(body: RegisterIn, background: BackgroundTasks):
     if not body.consentement:
         raise HTTPException(status_code=422, detail="Vous devez accepter les mentions légales et la politique de confidentialité")
     email = body.email.lower()
+    today = datetime.now(PARIS).date()
+    if body.date_naissance > today or age_le(body.date_naissance, today) > 120:
+        raise HTTPException(status_code=422, detail="Date de naissance invalide")
+    mineur = age_le(body.date_naissance, today) < MAJORITE
+    email_parent = body.email_parent.lower() if body.email_parent else None
+    # Ticket #17 : un mineur doit fournir l'e-mail d'un parent ; un organisateur doit être majeur
+    if mineur and body.role == "organisateur":
+        raise HTTPException(status_code=422, detail="Il faut être majeur pour organiser une collecte")
+    if mineur and not email_parent:
+        raise HTTPException(status_code=422, detail="L'e-mail d'un parent est obligatoire pour les moins de 18 ans")
+    if mineur and email_parent == email:
+        raise HTTPException(status_code=422, detail="L'e-mail du parent doit être différent du vôtre")
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="Un compte existe déjà avec cet e-mail")
+    parent_token, parent_fields = new_parent_token() if mineur else (None, {})
     user = {
         "id": str(uuid.uuid4()),
         "email": email,
@@ -423,9 +491,14 @@ async def register(body: RegisterIn, background: BackgroundTasks):
         "password_hash": hash_password(body.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "consentement_le": datetime.now(timezone.utc).isoformat(),
+        "date_naissance": body.date_naissance.isoformat(),
+        "statut": "en_attente_parent" if mineur else "actif",
+        **({"email_parent": email_parent, **parent_fields} if mineur else {}),
     }
     await db.users.insert_one(user)
     background.add_task(send_welcome_email, email, user["prenom"])
+    if mineur:
+        background.add_task(send_parent_request_email, email_parent, user["prenom"], parent_token)
     return AuthOut(token=make_token(user["id"]), user=user_out(user),
                    welcome_email_sent=email_configured())
 
@@ -486,6 +559,50 @@ async def delete_account(body: DeleteAccountIn, user: dict = Depends(require_use
     await db.password_resets.delete_many({"user_id": uid})
     await db.users.delete_one({"id": uid})
     return {"message": "Votre compte et vos données personnelles ont été supprimés."}
+
+
+# ---------- Ticket #17 : autorisation parentale ----------
+async def find_by_parent_token(token: str) -> dict:
+    user = await db.users.find_one({"parent_token_hash": hashlib.sha256(token.encode()).hexdigest(),
+                                    "statut": "en_attente_parent"}, {"_id": 0})
+    if not user or user.get("parent_token_expires", "") < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=404, detail="Lien invalide, expiré ou déjà utilisé")
+    return user
+
+
+@api_router.get("/autorisation-parentale/{token}")
+async def parent_request_info(token: str):
+    user = await find_by_parent_token(token)
+    return {"prenom": user["prenom"], "consignes": CONSIGNES_SECURITE}
+
+
+@api_router.post("/autorisation-parentale/{token}")
+async def parent_decision(token: str, body: ParentDecisionIn, background: BackgroundTasks):
+    user = await find_by_parent_token(token)
+    if body.decision == "accepter":
+        await db.users.update_one({"id": user["id"]}, {
+            "$set": {"statut": "actif", "accord_parental_le": datetime.now(timezone.utc).isoformat()},
+            "$unset": {"parent_token_hash": "", "parent_token_expires": ""}})
+        background.add_task(send_parent_decision_email, user["email"], user["prenom"], True)
+        return {"message": f"Merci ! Le compte de {user['prenom']} est activé."}
+    # Refus : le compte (sans aucune inscription, puisqu'il était bloqué) est supprimé
+    await db.password_resets.delete_many({"user_id": user["id"]})
+    await db.users.delete_one({"id": user["id"]})
+    background.add_task(send_parent_decision_email, user["email"], user["prenom"], False)
+    return {"message": f"C'est noté : le compte de {user['prenom']} et ses données ont été supprimés."}
+
+
+@api_router.post("/me/autorisation-parentale/renvoyer", response_model=UserOut)
+async def parent_resend(body: ParentResendIn, background: BackgroundTasks, user: dict = Depends(require_user)):
+    if user.get("statut") != "en_attente_parent":
+        raise HTTPException(status_code=409, detail="Votre compte est déjà actif")
+    email_parent = (body.email_parent or user["email_parent"]).lower()
+    if email_parent == user["email"]:
+        raise HTTPException(status_code=422, detail="L'e-mail du parent doit être différent du vôtre")
+    token, fields = new_parent_token()
+    await db.users.update_one({"id": user["id"]}, {"$set": {"email_parent": email_parent, **fields}})
+    background.add_task(send_parent_request_email, email_parent, user["prenom"], token)
+    return user_out({**user, "email_parent": email_parent})
 
 
 # Ticket #3 : mot de passe oublié. Même réponse que le compte existe ou non (pas d'énumération des e-mails).
@@ -563,6 +680,8 @@ async def create_collecte(body: CollecteIn, user: dict = Depends(require_user)):
 
 @api_router.post("/collectes/{collecte_id}/inscription", response_model=CollecteOut)
 async def inscription(collecte_id: str, background: BackgroundTasks, user: dict = Depends(require_user)):
+    if user.get("statut") == "en_attente_parent":
+        raise HTTPException(status_code=403, detail="Votre compte attend l'accord de votre parent avant de pouvoir vous inscrire")
     doc = await get_collecte_or_404(collecte_id)
     if not await db.collectes.find_one({"id": collecte_id, **upcoming_filter()}, {"_id": 1}):
         raise HTTPException(status_code=409, detail="Cette collecte est terminée")

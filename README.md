@@ -24,6 +24,8 @@ Site pour fédérer les bénévoles qui ramassent les déchets sur le littoral d
 
 Ticket #16 (Sprint 3, avancé) : consentement obligatoire à l'inscription, page Mentions légales et confidentialité, page « Mon profil » (modifier son prénom, supprimer son compte).
 
+Ticket #17 (Sprint 3, avancé) : date de naissance à l'inscription ; moins de 18 ans → e-mail d'un parent obligatoire, compte « en attente » (inscriptions aux collectes bloquées) jusqu'à ce que le parent clique « J'autorise » dans l'e-mail (lien valable 7 jours, renvoyable) ; refus → compte supprimé. Organisateur : majeur obligatoire. Aucune pièce d'identité collectée (minimisation RGPD).
+
 Page « Mes collectes » : publiées (organisateur) ou inscriptions (ramasseur), passées incluses.
 
 ## Stack

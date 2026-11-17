@@ -30,7 +30,10 @@ export default function MentionsLegales() {
 
       <S title="Données collectées et finalité">
         <p>Nous collectons uniquement : votre prénom, votre adresse e-mail, votre mot de passe (stocké chiffré, illisible par l'équipe),
-          votre rôle (ramasseur ou organisateur) et les collectes auxquelles vous vous inscrivez ou participez.</p>
+          votre rôle (ramasseur ou organisateur), votre date de naissance et les collectes auxquelles vous vous inscrivez ou participez.</p>
+        <p>Pour les moins de 18 ans, nous demandons aussi l'e-mail d'un parent : il reçoit un lien pour autoriser ou refuser l'inscription,
+          et nous conservons son e-mail et la date de son accord comme preuve. S'il refuse, le compte est supprimé. Aucune pièce d'identité n'est demandée :
+          l'âge est déclaratif.</p>
         <p>Ces données servent exclusivement à organiser les collectes : créer votre compte, vous inscrire, vous envoyer la confirmation,
           le rappel la veille et les consignes, valider votre présence et calculer le bilan. Elles ne sont ni vendues ni utilisées à des fins publicitaires.</p>
         <p>Base légale : votre consentement, recueilli à la création du compte (article 6.1.a du RGPD).</p>

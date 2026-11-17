@@ -25,7 +25,7 @@ def patch_expr():
     cls.find_one_and_update = foau
 with TestClient(server.app) as c:
     patch_expr()
-    reg = lambda e, r: c.post("/api/auth/register", json={"email": e, "password": "secret1", "prenom": e[:3], "role": r, "consentement": True}).json()
+    reg = lambda e, r: c.post("/api/auth/register", json={"email": e, "password": "secret1", "prenom": e[:3], "role": r, "consentement": True, "date_naissance": "1995-05-05"}).json()
     o = reg("orga@x.fr", "organisateur"); a = reg("alice@x.fr", "ramasseur"); b = reg("bob@x.fr", "ramasseur")
     # #3 reset
     sent.clear()
@@ -83,7 +83,7 @@ with TestClient(server.app) as c:
     assert c.post("/api/auth/login", json={"email": "bob@x.fr", "password": "nouveau9"}).status_code == 200
     print("changement de mot de passe OK")
     # #16 RGPD
-    r = c.post("/api/auth/register", json={"email": "z@x.fr", "password": "secret1", "prenom": "Z", "role": "ramasseur"}); assert r.status_code == 422
+    r = c.post("/api/auth/register", json={"email": "z@x.fr", "password": "secret1", "prenom": "Z", "role": "ramasseur", "date_naissance": "1995-05-05"}); assert r.status_code == 422
     assert c.patch("/api/me", headers=H(a["token"]), json={"prenom": "Alice"}).json()["prenom"] == "Alice"
     assert c.request("DELETE", "/api/me", headers=H(a["token"]), json={"password": "faux"}).status_code == 401
     assert c.request("DELETE", "/api/me", headers=H(a["token"]), json={"password": "nouveau1"}).status_code == 200
@@ -91,4 +91,36 @@ with TestClient(server.app) as c:
     d = c.get(f"/api/collectes/{col['id']}").json(); assert d["inscrits_count"] == 0 and d["bilan"]["participants"] == 1
     assert c.request("DELETE", "/api/me", headers=H(o["token"]), json={"password": "secret1"}).status_code == 200
     d = c.get(f"/api/collectes/{col['id']}").json(); assert d["organisateur_prenom"] == "Compte supprimé"
-    print("#16 consentement, profil, suppression OK — tout est vert")
+    print("#16 consentement, profil, suppression OK")
+    # #17 autorisation parentale
+    from datetime import date as _d
+    ado = (_d.today().replace(year=_d.today().year - 15)).isoformat()
+    base = {"password": "secret1", "prenom": "Léo", "consentement": True, "date_naissance": ado}
+    assert c.post("/api/auth/register", json={**base, "email": "leo@x.fr", "role": "ramasseur"}).status_code == 422  # sans e-mail parent
+    assert c.post("/api/auth/register", json={**base, "email": "leo@x.fr", "role": "organisateur", "email_parent": "p@x.fr"}).status_code == 422
+    assert c.post("/api/auth/register", json={**base, "email": "leo@x.fr", "role": "ramasseur", "email_parent": "leo@x.fr"}).status_code == 422
+    assert c.post("/api/auth/register", json={**base, "email": "leo@x.fr", "role": "ramasseur", "date_naissance": "2999-01-01", "email_parent": "p@x.fr"}).status_code == 422
+    sent.clear()
+    r = c.post("/api/auth/register", json={**base, "email": "leo@x.fr", "role": "ramasseur", "email_parent": "parent@x.fr"}); assert r.status_code == 200, r.text
+    leo = r.json(); assert leo["user"]["statut"] == "en_attente_parent"
+    mail = [m for m in sent if m[0] == "parent@x.fr"]; assert mail, sent
+    tok = re.search(r"token=([\w-]+)", mail[-1][2]).group(1)
+    o2 = reg("orga2@x.fr", "organisateur"); col2 = c.post("/api/collectes", headers=H(o2["token"]), json={"titre": "Test2", "lieu": "Plage", "commune": "Brest", "point_rdv": "Parking", "lat": 48.4, "lng": -4.4, "date": future, "heure_debut": "09:00", "heure_fin": "11:00", "places": 5}).json()
+    assert c.post(f"/api/collectes/{col2['id']}/inscription", headers=H(leo["token"])).status_code == 403
+    assert c.get(f"/api/autorisation-parentale/{tok}").json()["prenom"] == "Léo"
+    # renvoi : l'ancien lien n'est plus valable
+    sent.clear(); c.post("/api/me/autorisation-parentale/renvoyer", headers=H(leo["token"]), json={})
+    assert c.get(f"/api/autorisation-parentale/{tok}").status_code == 404
+    tok = re.search(r"token=([\w-]+)", sent[-1][2]).group(1)
+    r = c.post(f"/api/autorisation-parentale/{tok}", json={"decision": "accepter"}); assert r.status_code == 200
+    assert c.get("/api/auth/me", headers=H(leo["token"])).json()["statut"] == "actif"
+    assert c.post(f"/api/autorisation-parentale/{tok}", json={"decision": "refuser"}).status_code == 404  # usage unique
+    assert c.post(f"/api/collectes/{col2['id']}/inscription", headers=H(leo["token"])).status_code == 200
+    # refus -> compte supprimé
+    sent.clear()
+    mia = c.post("/api/auth/register", json={**base, "email": "mia@x.fr", "role": "ramasseur", "email_parent": "p2@x.fr"}).json()
+    tok2 = re.search(r"token=([\w-]+)", [m for m in sent if m[0] == "p2@x.fr"][-1][2]).group(1)
+    assert c.post(f"/api/autorisation-parentale/{tok2}", json={"decision": "refuser"}).status_code == 200
+    assert c.get("/api/auth/me", headers=H(mia["token"])).status_code in (401, 404) or c.get("/api/auth/me", headers=H(mia["token"])).json() is None
+    assert c.post("/api/auth/login", json={"email": "mia@x.fr", "password": "secret1"}).status_code == 401
+    print("#17 autorisation parentale OK — tout est vert")

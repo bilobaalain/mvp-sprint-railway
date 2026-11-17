@@ -38,24 +38,47 @@ const useSubmit = (path, successMsg) => {
   return { busy, submit };
 };
 
+// Ticket #17 : âge calculé à partir de la date de naissance déclarée
+const ageFrom = (iso) => {
+  if (!iso) return null;
+  const b = new Date(iso + "T00:00:00"), t = new Date();
+  return t.getFullYear() - b.getFullYear() - (t < new Date(t.getFullYear(), b.getMonth(), b.getDate()) ? 1 : 0);
+};
+
 export const Signup = () => {
   const location = useLocation();
-  const [f, setF] = useState({ prenom: "", email: "", password: "", role: "ramasseur", consentement: false });
+  const [f, setF] = useState({ prenom: "", email: "", password: "", role: "ramasseur", consentement: false, date_naissance: "", email_parent: "" });
   const { busy, submit } = useSubmit("/auth/register", (d) =>
-    d.welcome_email_sent
-      ? `Bienvenue ${d.user.prenom} ! Un e-mail de bienvenue a été envoyé à ${d.user.email}.`
-      : `Bienvenue ${d.user.prenom} ! Compte créé (envoi d'e-mail non configuré).`);
+    d.user.statut === "en_attente_parent"
+      ? `Compte créé ! Un e-mail a été envoyé à ${d.user.email_parent} : tu pourras t'inscrire aux collectes dès que ton parent aura donné son accord.`
+      : d.welcome_email_sent
+        ? `Bienvenue ${d.user.prenom} ! Un e-mail de bienvenue a été envoyé à ${d.user.email}.`
+        : `Bienvenue ${d.user.prenom} ! Compte créé (envoi d'e-mail non configuré).`);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const age = ageFrom(f.date_naissance);
+  const mineur = age !== null && age < 18;
+  const orgaMineur = mineur && f.role === "organisateur";
+  const today = new Date().toISOString().slice(0, 10);
+  const payload = () => ({ ...f, email_parent: mineur ? f.email_parent : null });
 
   return (
     <Shell title="Créer un compte" subtitle="Moins d'une minute pour rejoindre la communauté.">
-      <form data-testid="signup-form" className="space-y-4" onSubmit={(e) => { e.preventDefault(); submit(f); }}>
+      <form data-testid="signup-form" className="space-y-4" onSubmit={(e) => { e.preventDefault(); submit(payload()); }}>
         <div className="space-y-1.5"><Label htmlFor="prenom">Prénom</Label>
           <Input id="prenom" data-testid="signup-input-prenom" value={f.prenom} onChange={set("prenom")} required /></div>
         <div className="space-y-1.5"><Label htmlFor="email">E-mail</Label>
           <Input id="email" type="email" data-testid="signup-input-email" value={f.email} onChange={set("email")} required /></div>
         <div className="space-y-1.5"><Label htmlFor="password">Mot de passe (6 caractères min.)</Label>
           <Input id="password" type="password" minLength={6} data-testid="signup-input-password" value={f.password} onChange={set("password")} required /></div>
+        <div className="space-y-1.5"><Label htmlFor="naissance">Date de naissance</Label>
+          <Input id="naissance" type="date" max={today} min="1900-01-01" data-testid="signup-input-birthdate" value={f.date_naissance} onChange={set("date_naissance")} required /></div>
+        {mineur && f.role === "ramasseur" && (
+          <div data-testid="signup-parent-block" className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2">
+            <p className="text-sm text-amber-900">Tu as moins de 18 ans : un parent devra valider ton inscription. Il recevra un e-mail avec un lien ; ton compte sera actif dès son accord.</p>
+            <Label htmlFor="email_parent">E-mail d'un parent</Label>
+            <Input id="email_parent" type="email" data-testid="signup-input-parent-email" value={f.email_parent} onChange={set("email_parent")} required className="bg-white" />
+          </div>
+        )}
         <div className="space-y-2">
           <Label>Je suis</Label>
           <RadioGroup value={f.role} onValueChange={(role) => setF({ ...f, role })} className="grid grid-cols-2 gap-3">
@@ -66,13 +89,14 @@ export const Signup = () => {
             ))}
           </RadioGroup>
         </div>
+        {orgaMineur && <p data-testid="signup-orga-minor" className="text-sm text-red-600">Il faut être majeur pour organiser une collecte. Tu peux t'inscrire comme ramasseur.</p>}
         <label htmlFor="consentement" className="flex items-start gap-3 text-sm text-slate-600 cursor-pointer">
           <Checkbox id="consentement" data-testid="signup-consent" className="mt-0.5" checked={f.consentement}
             onCheckedChange={(v) => setF({ ...f, consentement: v === true })} />
-          <span>J'accepte que mes données (prénom, e-mail, inscriptions) soient utilisées pour organiser les collectes, conformément aux{" "}
+          <span>J'accepte que mes données (prénom, e-mail, date de naissance, inscriptions) soient utilisées pour organiser les collectes, conformément aux{" "}
             <Link to="/mentions-legales" target="_blank" className="text-[#0D9488] font-semibold">mentions légales et à la politique de confidentialité</Link>.</span>
         </label>
-        <Button type="submit" data-testid="signup-submit-button" disabled={busy || !f.consentement} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
+        <Button type="submit" data-testid="signup-submit-button" disabled={busy || !f.consentement || orgaMineur} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
           {busy ? "Création…" : "Créer mon compte"}
         </Button>
         <p className="text-sm text-center text-slate-500">Déjà un compte ? <Link to="/connexion" state={location.state} data-testid="signup-to-login-link" className="text-[#0D9488] font-semibold">Se connecter</Link></p>

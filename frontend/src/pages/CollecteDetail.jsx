@@ -79,6 +79,11 @@ const RegisterBlock = ({ c, onDone }) => {
       <UnregisterButton c={c} onDone={onDone} />
     </div>
   );
+  if (user?.statut === "en_attente_parent") return (
+    <Button data-testid={`register-button-${c.id}`} disabled size="lg" className="w-full rounded-full bg-slate-300 text-white">
+      En attente de l'accord parental
+    </Button>
+  );
   const go = async () => {
     if (!user) return navigate("/connexion", { state: { from: `/collectes/${c.id}` } });
     setBusy(true);
