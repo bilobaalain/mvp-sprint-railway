@@ -29,6 +29,8 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 REMINDER_INTERVAL_S = int(os.environ.get("REMINDER_INTERVAL_S", "600"))
+# Ticket #21 : comptes de l'association qui valident les collectes (e-mails séparés par des virgules)
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -130,6 +132,7 @@ class UserOut(BaseModel):
     email_parent: Optional[str] = None
     # Ticket #18 : points gagnés à chaque présence validée
     points: int = 0
+    admin: bool = False  # Ticket #21 : membre de l'association (ADMIN_EMAILS)
 
 
 class AuthOut(BaseModel):
@@ -180,6 +183,15 @@ class CollecteEditIn(CollecteIn):
     motif: str = Field(default="", max_length=500)
 
 
+class ValidationIn(BaseModel):
+    decision: Literal["valider", "refuser"]
+    motif: str = Field(default="", max_length=500)
+
+
+class AnnulationIn(BaseModel):
+    motif: str = Field(default="", max_length=500)
+
+
 class CollecteOut(BaseModel):
     id: str
     titre: str
@@ -207,6 +219,13 @@ class CollecteOut(BaseModel):
     est_present: bool = False
     est_organisateur: bool = False
     modifiable: bool = False
+    # Ticket #21 : les collectes créées avant ce ticket n'ont pas de champ « validation » → validées
+    validation: Literal["en_attente", "validee", "refusee"] = "validee"
+    motif_refus: Optional[str] = None
+    # Ticket #22 : annulation par l'organisateur
+    annulee: bool = False
+    motif_annulation: Optional[str] = None
+    annulable: bool = False
 
 
 # ---------- Date helpers ----------
@@ -256,11 +275,30 @@ def fmt_champ(k: str, v) -> str:
     return str(v)
 
 
+# ---------- Tickets #21 et #22 : validation par l'association, annulation ----------
+def validation_of(doc: dict) -> str:
+    return doc.get("validation", "validee")
+
+
+def publique(doc: dict) -> bool:
+    """Visible de tous et ouverte aux inscriptions : validée par l'association et non annulée."""
+    return validation_of(doc) == "validee" and not doc.get("annulee")
+
+
+# Même règle que publique(), en filtre Mongo (un document sans champ « validation » est validé)
+PUBLIC_FILTER = {"validation": {"$nin": ["en_attente", "refusee"]}, "annulee": {"$ne": True}}
+
+
+def annulable(doc: dict) -> bool:
+    return not doc.get("annulee") and statut(doc) == "a_venir"
+
+
 def collecte_out(doc: dict, user_id: Optional[str] = None) -> CollecteOut:
     inscrits = doc.get("inscrits", [])
     restantes = max(doc["places"] - len(inscrits), 0)
     presents = doc.get("presents")
     bilan = doc.get("bilan")
+    orga = bool(user_id and user_id == doc.get("organisateur_id"))
     return CollecteOut(
         **{k: doc[k] for k in ("id", "titre", "lieu", "commune", "point_rdv", "lat", "lng", "date",
                                "heure_debut", "heure_fin", "places", "materiel_fourni",
@@ -275,8 +313,13 @@ def collecte_out(doc: dict, user_id: Optional[str] = None) -> CollecteOut:
         bilan=BilanOut(kg=bilan["kg"], sacs=bilan["sacs"], participants=len(presents or [])) if bilan else None,
         est_inscrit=bool(user_id and user_id in inscrits),
         est_present=bool(user_id and presents and user_id in presents),
-        est_organisateur=bool(user_id and user_id == doc.get("organisateur_id")),
-        modifiable=bool(user_id and user_id == doc.get("organisateur_id")) and modifiable(doc),
+        est_organisateur=orga,
+        modifiable=orga and not doc.get("annulee") and modifiable(doc),
+        validation=validation_of(doc),
+        motif_refus=doc.get("motif_refus"),
+        annulee=bool(doc.get("annulee")),
+        motif_annulation=(doc.get("annulation") or {}).get("motif"),
+        annulable=orga and annulable(doc),
     )
 
 
@@ -304,10 +347,20 @@ async def require_user(user: Optional[dict] = Depends(optional_user)) -> dict:
     return user
 
 
+def is_admin(u: Optional[dict]) -> bool:
+    return bool(u and u.get("email", "").lower() in ADMIN_EMAILS)
+
+
+async def require_admin(user: dict = Depends(require_user)) -> dict:
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Réservé à l'association")
+    return user
+
+
 def user_out(u: dict) -> UserOut:
     return UserOut(id=u["id"], email=u["email"], prenom=u["prenom"], role=u["role"],
                    statut=u.get("statut", "actif"), email_parent=u.get("email_parent"),
-                   points=max(0, u.get("points", 0)))
+                   points=max(0, u.get("points", 0)), admin=is_admin(u))
 
 
 MAJORITE = 18
@@ -478,7 +531,7 @@ def send_merci_email(email: str, prenom: str, c: dict, total: int, prochaines: l
 
 
 async def prochaines_collectes(user_id: str, n: int = 3) -> list:
-    docs = await db.collectes.find({**upcoming_filter(), "inscrits": {"$ne": user_id}}, {"_id": 0}) \
+    docs = await db.collectes.find({**upcoming_filter(), **PUBLIC_FILTER, "inscrits": {"$ne": user_id}}, {"_id": 0}) \
         .sort([("date", 1), ("heure_debut", 1)]).to_list(50)
     return [d for d in docs if statut(d) == "a_venir" and len(d.get("inscrits", [])) < d["places"]][:n]
 
@@ -489,6 +542,37 @@ async def remercier_presents(c: dict, user_ids: list) -> None:
         if u:
             await asyncio.to_thread(send_merci_email, u["email"], u["prenom"], c, max(0, u.get("points", 0)),
                                     await prochaines_collectes(uid))
+
+
+def send_a_valider_email(email: str, c: dict) -> bool:
+    return send_email(email, f"Collecte à valider : {c['titre']}", _layout(
+        "Une collecte attend votre validation",
+        f"<p><b>{escape(c['organisateur_prenom'])}</b> vient de soumettre une collecte. Elle ne sera visible du public "
+        f"qu'après validation par l'association.</p>{_collecte_block(c)}"
+        f"""<p><a href="{FRONTEND_URL}/association"><b>Ouvrir la file de validation</b></a></p>"""))
+
+
+def send_decision_email(email: str, prenom: str, c: dict, validee: bool, motif: str) -> bool:
+    if validee:
+        return send_email(email, f"Collecte validée : {c['titre']}", _layout(
+            f"Bonne nouvelle, {escape(prenom)} !",
+            "<p>L'association a validé votre collecte : elle est maintenant visible sur la carte et ouverte aux inscriptions.</p>"
+            + _collecte_block(c)))
+    return send_email(email, f"Collecte refusée : {c['titre']}", _layout(
+        f"Bonjour {escape(prenom)},",
+        f"""<p>L'association n'a pas validé votre collecte <b>{escape(c['titre'])}</b>.</p>
+      <p><b>Motif :</b> {escape(motif)}</p>
+      <p>Vous pouvez la <a href="{FRONTEND_URL}/collectes/{c['id']}/modifier">modifier</a> : elle sera alors soumise à nouveau.</p>"""))
+
+
+def send_annulation_email(email: str, prenom: str, c: dict, motif: str) -> bool:
+    d = date.fromisoformat(c["date"]).strftime("%d/%m/%Y")
+    return send_email(email, f"Collecte annulée : {c['titre']}", _layout(
+        f"Bonjour {escape(prenom)},",
+        f"""<p>La collecte <b>{escape(c['titre'])}</b> du {d} ({escape(c['lieu'])}, {escape(c['commune'])})
+      à laquelle vous étiez inscrit·e est <b>annulée</b> par son organisateur.</p>
+      {f"<p><b>Motif :</b> {escape(motif)}</p>" if motif else ""}
+      <p>Merci pour votre engagement ! <a href="{FRONTEND_URL}/collectes">Voir les autres collectes</a></p>"""))
 
 
 def send_reset_email(email: str, prenom: str, token: str) -> bool:
@@ -503,7 +587,8 @@ def send_reset_email(email: str, prenom: str, token: str) -> bool:
 # ---------- Ticket #9 : rappel la veille ----------
 async def send_due_reminders() -> int:
     now = datetime.now(PARIS)
-    window = {"date": {"$gte": now.date().isoformat(), "$lte": (now + timedelta(days=1)).date().isoformat()}}
+    window = {"date": {"$gte": now.date().isoformat(), "$lte": (now + timedelta(days=1)).date().isoformat()},
+              **PUBLIC_FILTER}
     sent = 0
     async for c in db.collectes.find(window, {"_id": 0}):
         if not (now < start_dt(c) <= now + timedelta(hours=24)):
@@ -717,7 +802,8 @@ async def reset_password(body: ResetIn):
 # ---------- Routes : collectes ----------
 @api_router.get("/collectes", response_model=List[CollecteOut])
 async def list_collectes(limit: int = 100, user: Optional[dict] = Depends(optional_user)):
-    docs = await db.collectes.find(upcoming_filter(), {"_id": 0}) \
+    # Tickets #21/#22 : ni les collectes en attente de validation ou refusées, ni les annulées
+    docs = await db.collectes.find({**upcoming_filter(), **PUBLIC_FILTER}, {"_id": 0}) \
         .sort([("date", 1), ("heure_debut", 1)]).limit(min(max(limit, 1), 200)).to_list(200)
     uid = user["id"] if user else None
     return [collecte_out(d, uid) for d in docs]
@@ -734,11 +820,16 @@ async def my_collectes(user: dict = Depends(require_user)):
 @api_router.get("/collectes/{collecte_id}", response_model=CollecteOut)
 async def get_collecte(collecte_id: str, user: Optional[dict] = Depends(optional_user)):
     doc = await get_collecte_or_404(collecte_id)
+    # Ticket #21 : une collecte non validée n'est visible que de son organisateur et de l'association.
+    # Une collecte annulée reste consultable (lien reçu par e-mail), avec la mention « annulée ».
+    if validation_of(doc) != "validee" and not (
+            user and (user["id"] == doc.get("organisateur_id") or is_admin(user))):
+        raise HTTPException(status_code=404, detail="Collecte introuvable")
     return collecte_out(doc, user["id"] if user else None)
 
 
 @api_router.post("/collectes", response_model=CollecteOut, status_code=201)
-async def create_collecte(body: CollecteIn, user: dict = Depends(require_user)):
+async def create_collecte(body: CollecteIn, background: BackgroundTasks, user: dict = Depends(require_user)):
     if user["role"] != "organisateur":
         raise HTTPException(status_code=403, detail="Seuls les organisateurs peuvent publier une collecte")
     if body.date < datetime.now(PARIS).date():
@@ -753,8 +844,13 @@ async def create_collecte(body: CollecteIn, user: dict = Depends(require_user)):
         "organisateur_prenom": user["prenom"],
         "inscrits": [],
         "created_at": datetime.now(timezone.utc).isoformat(),
+        # Ticket #21 : en attente de validation, sauf si l'organisateur est lui-même de l'association
+        "validation": "validee" if is_admin(user) else "en_attente",
     }
     await db.collectes.insert_one(doc)
+    if doc["validation"] == "en_attente":
+        for email in ADMIN_EMAILS:
+            background.add_task(send_a_valider_email, email, doc)
     return collecte_out(doc, user["id"])
 
 
@@ -764,6 +860,8 @@ async def create_collecte(body: CollecteIn, user: dict = Depends(require_user)):
 async def modifier_collecte(collecte_id: str, body: CollecteEditIn, background: BackgroundTasks,
                             user: dict = Depends(require_user)):
     doc = await get_own_collecte(collecte_id, user)
+    if doc.get("annulee"):
+        raise HTTPException(status_code=409, detail="Cette collecte est annulée")
     if not modifiable(doc):
         raise HTTPException(status_code=409, detail="Modification impossible à moins de 30 min de la fin de la collecte")
     now = datetime.now(PARIS)
@@ -790,12 +888,81 @@ async def modifier_collecte(collecte_id: str, body: CollecteEditIn, background: 
         "le": datetime.now(timezone.utc).isoformat(), "motif": motif, "champs": [c[0] for c in changes]}}}
     if doc["date"] != new["date"] or doc["heure_debut"] != new["heure_debut"]:
         update["$set"]["rappels_envoyes"] = []  # le rappel J-1 repartira pour le nouvel horaire
+    # Ticket #21 : une collecte refusée puis corrigée repart en validation
+    resoumise = validation_of(doc) == "refusee"
+    if resoumise:
+        update["$set"]["validation"] = "en_attente"
+        update["$unset"] = {"motif_refus": ""}
     updated = await db.collectes.find_one_and_update({"id": collecte_id}, update,
                                                      projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+    if resoumise:
+        for email in ADMIN_EMAILS:
+            background.add_task(send_a_valider_email, email, updated)
     if inscrits:
         users = await db.users.find({"id": {"$in": inscrits}}, {"_id": 0, "email": 1, "prenom": 1}).to_list(500)
         for u in users:
             background.add_task(send_modification_email, u["email"], u["prenom"], updated, changes, motif)
+    return collecte_out(updated, user["id"])
+
+
+# Ticket #22 : annulation par l'organisateur, tant que la collecte n'a pas commencé.
+# La collecte est conservée (lien des e-mails, historique) mais disparaît des listes publiques.
+@api_router.post("/collectes/{collecte_id}/annulation", response_model=CollecteOut)
+async def annuler_collecte(collecte_id: str, body: AnnulationIn, background: BackgroundTasks,
+                           user: dict = Depends(require_user)):
+    doc = await get_own_collecte(collecte_id, user)
+    if doc.get("annulee"):
+        raise HTTPException(status_code=409, detail="Cette collecte est déjà annulée")
+    if statut(doc) != "a_venir":
+        raise HTTPException(status_code=409, detail="Une collecte commencée ou terminée ne peut plus être annulée")
+    inscrits = doc.get("inscrits", [])
+    motif = body.motif.strip()
+    if inscrits and len(motif) < 5:
+        raise HTTPException(status_code=422, detail="Indiquez le motif de l'annulation : il sera envoyé aux inscrits")
+    # update_one + filtre : si deux annulations arrivent en même temps, une seule passe
+    res = await db.collectes.update_one(
+        {"id": collecte_id, "annulee": {"$ne": True}},
+        {"$set": {"annulee": True, "annulation": {"le": datetime.now(timezone.utc).isoformat(), "motif": motif}}})
+    if not res.modified_count:
+        raise HTTPException(status_code=409, detail="Cette collecte est déjà annulée")
+    updated = await get_collecte_or_404(collecte_id)
+    if inscrits:
+        users = await db.users.find({"id": {"$in": inscrits}}, {"_id": 0, "email": 1, "prenom": 1}).to_list(500)
+        for u in users:
+            background.add_task(send_annulation_email, u["email"], u["prenom"], updated, motif)
+    return collecte_out(updated, user["id"])
+
+
+# ---------- Ticket #21 : validation des collectes par l'association ----------
+@api_router.get("/association/collectes", response_model=List[CollecteOut])
+async def collectes_a_valider(user: dict = Depends(require_admin)):
+    docs = await db.collectes.find({"validation": "en_attente", "annulee": {"$ne": True}, **upcoming_filter()},
+                                   {"_id": 0}).sort([("date", 1), ("heure_debut", 1)]).to_list(500)
+    return [collecte_out(d, user["id"]) for d in docs]
+
+
+@api_router.post("/association/collectes/{collecte_id}/validation", response_model=CollecteOut)
+async def valider_collecte(collecte_id: str, body: ValidationIn, background: BackgroundTasks,
+                           user: dict = Depends(require_admin)):
+    doc = await get_collecte_or_404(collecte_id)
+    if validation_of(doc) != "en_attente" or doc.get("annulee"):
+        raise HTTPException(status_code=409, detail="Cette collecte n'est pas en attente de validation")
+    motif = body.motif.strip()
+    if body.decision == "refuser" and len(motif) < 5:
+        raise HTTPException(status_code=422, detail="Indiquez le motif du refus : il sera envoyé à l'organisateur")
+    fields = {"validation": "validee" if body.decision == "valider" else "refusee",
+              "validation_par": user["id"], "validation_le": datetime.now(timezone.utc).isoformat()}
+    if body.decision == "refuser":
+        fields["motif_refus"] = motif
+    # Filtre sur « en_attente » : si deux membres de l'association décident en même temps, un seul passe
+    res = await db.collectes.update_one({"id": collecte_id, "validation": "en_attente"}, {"$set": fields})
+    if not res.modified_count:
+        raise HTTPException(status_code=409, detail="Cette collecte vient d'être traitée par quelqu'un d'autre")
+    updated = await get_collecte_or_404(collecte_id)
+    orga = await db.users.find_one({"id": doc.get("organisateur_id")}, {"_id": 0, "email": 1, "prenom": 1})
+    if orga:
+        background.add_task(send_decision_email, orga["email"], orga["prenom"], updated,
+                            body.decision == "valider", motif)
     return collecte_out(updated, user["id"])
 
 
@@ -804,6 +971,10 @@ async def inscription(collecte_id: str, background: BackgroundTasks, user: dict 
     if user.get("statut") == "en_attente_parent":
         raise HTTPException(status_code=403, detail="Votre compte attend l'accord de votre parent avant de pouvoir vous inscrire")
     doc = await get_collecte_or_404(collecte_id)
+    if doc.get("annulee"):
+        raise HTTPException(status_code=409, detail="Cette collecte a été annulée")
+    if validation_of(doc) != "validee":
+        raise HTTPException(status_code=409, detail="Cette collecte n'est pas encore validée par l'association")
     if not await db.collectes.find_one({"id": collecte_id, **upcoming_filter()}, {"_id": 1}):
         raise HTTPException(status_code=409, detail="Cette collecte est terminée")
     if doc.get("organisateur_id") == user["id"]:
@@ -855,6 +1026,8 @@ async def participants(collecte_id: str, user: dict = Depends(require_user)):
 async def valider_presences(collecte_id: str, body: PresencesIn, background: BackgroundTasks,
                             user: dict = Depends(require_user)):
     doc = await get_own_collecte(collecte_id, user)
+    if not publique(doc):  # #18 : pas de points sur une collecte annulée ou non validée
+        raise HTTPException(status_code=409, detail="Collecte annulée ou non validée : pas de présences à valider")
     if statut(doc) == "a_venir":
         raise HTTPException(status_code=409, detail="Les présences se valident à partir du début de la collecte")
     inscrits = set(doc.get("inscrits", []))

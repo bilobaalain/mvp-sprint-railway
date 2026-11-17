@@ -12,6 +12,7 @@ import MesCollectes from "@/pages/MesCollectes";
 import Profil from "@/pages/Profil";
 import MentionsLegales from "@/pages/MentionsLegales";
 import AutorisationParentale from "@/pages/AutorisationParentale";
+import Association from "@/pages/Association";
 import ParentPendingBanner from "@/components/ParentPendingBanner";
 import { Link } from "react-router-dom";
 
@@ -37,6 +38,7 @@ function App() {
               <Route path="/profil" element={<Profil />} />
               <Route path="/mentions-legales" element={<MentionsLegales />} />
               <Route path="/autorisation-parentale" element={<AutorisationParentale />} />
+              <Route path="/association" element={<Association />} />
             </Routes>
           </main>
           <footer className="border-t border-slate-200 py-8 text-center text-xs text-slate-500">

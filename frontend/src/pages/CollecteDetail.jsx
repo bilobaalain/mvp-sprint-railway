@@ -9,6 +9,7 @@ import { fmtDate, fmtHours } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
 import { SingleMap } from "@/components/CollecteMap";
 import { PlacesBadge } from "@/components/CollecteCard";
+import { CopyLinkButton, CancelCollecteButton, ValidationDecision, EtatBanner } from "@/components/CollecteActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -69,6 +70,9 @@ const RegisterBlock = ({ c, onDone }) => {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
 
+  // Tickets #21/#22 : pas d'inscription sur une collecte annulée ou pas encore validée
+  if (c.annulee) return <p data-testid="register-annulee" className="text-sm text-red-700 font-semibold">Collecte annulée : les inscriptions sont fermées.</p>;
+  if (c.validation !== "validee") return <p className="text-sm text-slate-500">Les inscriptions ouvriront après validation par l'association.</p>;
   if (c.statut !== "a_venir") {
     if (c.est_present) return <p className="flex items-center gap-2 text-emerald-700 font-semibold"><CheckCircle2 size={20} /> Présence validée, merci ! +10 points</p>;
     return <p className="text-slate-500 text-sm">{c.statut === "en_cours" ? "La collecte est en cours." : "Cette collecte est terminée."}</p>;
@@ -233,8 +237,19 @@ export default function CollecteDetail() {
           <div className="space-y-2">
             <p className="text-sm font-semibold text-[#0D9488] capitalize">{fmtDate(c.date)}</p>
             <h1 data-testid="collecte-detail-title" className="font-heading text-3xl sm:text-4xl font-bold tracking-tight text-[#0F172A]">{c.titre}</h1>
-            <p className="text-slate-500 text-sm">Organisée par {c.organisateur_prenom}</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-slate-500 text-sm">Organisée par {c.organisateur_prenom}</p>
+              {/* Ticket #23 : seulement pour une collecte publique (le lien serait sinon inaccessible) */}
+              {c.validation === "validee" && !c.annulee && c.statut !== "terminee" && <CopyLinkButton c={c} />}
+            </div>
           </div>
+          <EtatBanner c={c} />
+          {user?.admin && c.validation === "en_attente" && !c.annulee && (
+            <Card data-testid="admin-decision" className="bg-amber-50/60 border-amber-200">
+              <p className="text-sm font-semibold text-[#0F172A]">Décision de l'association</p>
+              <ValidationDecision c={c} onDone={setC} />
+            </Card>
+          )}
           <Bilan c={c} />
           <SingleMap c={c} />
           {c.description && <p className="text-slate-700 leading-relaxed">{c.description}</p>}
@@ -245,7 +260,7 @@ export default function CollecteDetail() {
               <span className="flex items-center gap-2 text-sm text-slate-600"><Users size={16} /> {c.inscrits_count}/{c.places} inscrits</span>
               <PlacesBadge c={c} />
             </div>
-            {c.statut === "a_venir" && (
+            {c.statut === "a_venir" && !c.annulee && (
               <p data-testid="collecte-detail-spots-left" className="font-heading text-2xl font-bold text-[#0F172A]">
                 {c.places_restantes} place{c.places_restantes > 1 ? "s" : ""} restante{c.places_restantes > 1 ? "s" : ""}
               </p>
@@ -256,15 +271,17 @@ export default function CollecteDetail() {
             <Info icon={Package} label="Matériel fourni" testid="collecte-detail-equipment">{c.materiel_fourni}</Info>
             <Info icon={Backpack} label="À apporter" testid="collecte-detail-bring">{c.materiel_a_apporter}</Info>
             {!c.est_organisateur && <RegisterBlock c={c} onDone={setC} />}
-            {c.est_organisateur && (c.modifiable ? (
+            {c.est_organisateur && !c.annulee && (c.modifiable ? (
               <Button asChild data-testid="collecte-edit-button" variant="outline" className="w-full rounded-full">
-                <Link to={`/collectes/${c.id}/modifier`}><Pencil size={16} className="mr-2" /> Modifier la collecte</Link>
+                <Link to={`/collectes/${c.id}/modifier`}><Pencil size={16} className="mr-2" />
+                  {c.validation === "refusee" ? "Modifier et soumettre à nouveau" : "Modifier la collecte"}</Link>
               </Button>
             ) : (
               <p data-testid="collecte-edit-locked" className="flex items-center gap-2 text-sm text-slate-500"><Lock size={14} /> Modification impossible à moins de 30 min de la fin.</p>
             ))}
+            {c.annulable && <CancelCollecteButton c={c} onDone={setC} />}
           </Card>
-          {c.est_organisateur && <OrganizerPanel c={c} onDone={setC} />}
+          {c.est_organisateur && !c.annulee && <OrganizerPanel c={c} onDone={setC} />}
         </aside>
         <div className="lg:col-span-7 lg:col-start-1 lg:row-start-2 lg:self-start">
           <Consignes c={c} />

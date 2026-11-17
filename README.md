@@ -28,6 +28,17 @@ Ticket #17 (Sprint 3, avancé) : date de naissance à l'inscription ; moins de 1
 
 Page « Mes collectes » : publiées (organisateur) ou inscriptions (ramasseur), passées incluses.
 
+## Sprint 3
+| Ticket | Story |
+|---|---|
+| #14 | Historique dans « Mes collectes » : présences (ramasseur) ou bilans (organisateur), avec totaux |
+| #15 | Utilisable sur mobile en 375 px |
+| #21 | Association : valider ou refuser (avec motif) chaque collecte avant qu'elle soit publique. Les membres de l'association sont listés dans `ADMIN_EMAILS` et ont la page « À valider » (`/association`). Une collecte refusée puis modifiée repart en validation. |
+| #22 | Organisateur : modifier (e-mail aux inscrits avec motif, verrou 30 min avant la fin) ou annuler une collecte qui n'a pas commencé (e-mail aux inscrits avec motif, collecte retirée des listes) |
+| #23 | Copier le lien d'une collecte depuis sa fiche |
+
+Tests backend (base simulée) : `python backend/tests/sprint2_smoke.py backend` et `python backend/tests/tickets_21_22_23_smoke.py backend`.
+
 ## Stack
 - `backend/` : FastAPI + MongoDB (motor), auth JWT + bcrypt, e-mail via Resend (API HTTP)
 - `frontend/` : React + Tailwind + Leaflet/OpenStreetMap (aucune clé de carte)
@@ -38,7 +49,9 @@ Créer un projet Railway avec 3 services :
 2. **backend** (Root directory : `backend`) — démarrage via `Procfile`.
    Variables : `MONGO_URL`, `DB_NAME`, `JWT_SECRET` (chaîne aléatoire longue), `CORS_ORIGINS` (URL du frontend),
    `RESEND_API_KEY` (optionnel, sinon l'e-mail est seulement journalisé), `SENDER_EMAIL`,
-   `FRONTEND_URL` (URL publique du frontend, pour les liens des e-mails).
+   `FRONTEND_URL` (URL publique du frontend, pour les liens des e-mails),
+   `ADMIN_EMAILS` (e-mails des membres de l'association qui valident les collectes, séparés par des virgules).
+   **Sans `ADMIN_EMAILS`, aucune nouvelle collecte ne peut être validée.**
 3. **frontend** (Root directory : `frontend`)
    Build : `yarn install && yarn build` · Start : `npx serve -s build -l $PORT`
    Variable : `REACT_APP_BACKEND_URL` = URL publique du backend (sans `/api`).
