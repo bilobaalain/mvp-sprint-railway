@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
-import { MapPin, Clock, Users } from "lucide-react";
+import { MapPin, Clock, Users, Navigation } from "lucide-react";
 import { fmtDay, fmtMonth, fmtHours } from "@/lib/format";
+import { fmtKm } from "@/lib/geo";
 
 const STATUT = { en_cours: ["En cours", "bg-amber-50 text-amber-700"], terminee: ["Terminée", "bg-slate-100 text-slate-600"] };
 
@@ -35,6 +36,9 @@ export const CollecteCard = ({ c, active, onHover }) => (
       <div className="flex gap-4 text-xs text-slate-500">
         <span className="flex items-center gap-1"><Clock size={13} /> {fmtHours(c)}</span>
         <span className="flex items-center gap-1"><Users size={13} /> {c.inscrits_count}/{c.places}</span>
+        {c.distance != null && (
+          <span data-testid={`distance-${c.id}`} className="flex items-center gap-1 font-semibold text-[#0D9488]"><Navigation size={13} /> {fmtKm(c.distance)}</span>
+        )}
       </div>
     </div>
   </Link>

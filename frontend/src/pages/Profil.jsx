@@ -4,6 +4,7 @@ import { UserRound, Trash2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { api, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { ResidenceForm } from "@/components/ResidenceForm";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -144,12 +145,14 @@ export default function Profil() {
         </div>
       </form>
 
+      <ResidenceForm />
+
       <ChangePassword />
 
       <div className="rounded-3xl border border-slate-200 bg-white p-6 space-y-3 shadow-sm">
         <h2 className="font-heading text-lg font-semibold text-[#0F172A]">Mes données</h2>
         <p className="text-sm text-slate-600">
-          Nous conservons uniquement votre prénom, votre e-mail et vos inscriptions, pour organiser les collectes.
+          Nous conservons uniquement votre prénom, votre e-mail, vos inscriptions et, si vous la renseignez, votre commune de résidence, pour organiser les collectes.
           Détails dans les <Link to="/mentions-legales" className="text-[#0D9488] font-semibold">mentions légales et la politique de confidentialité</Link>.
         </p>
         <div className="flex flex-wrap gap-3 pt-1">

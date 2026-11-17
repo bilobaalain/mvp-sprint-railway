@@ -34,6 +34,10 @@ export default function MentionsLegales() {
         <p>Pour les moins de 18 ans, nous demandons aussi l'e-mail d'un parent : il reçoit un lien pour autoriser ou refuser l'inscription,
           et nous conservons son e-mail et la date de son accord comme preuve. S'il refuse, le compte est supprimé. Aucune pièce d'identité n'est demandée :
           l'âge est déclaratif.</p>
+        <p>Facultativement, vous pouvez indiquer dans « Mon profil » votre commune de résidence ou d'intervention. Seuls le nom de la commune,
+          son code postal et les coordonnées de son centre sont enregistrés (jamais votre position exacte) ; ils servent uniquement à afficher
+          la distance jusqu'aux collectes et à vous suggérer la plus proche. Vous pouvez la retirer à tout moment. La recherche de commune
+          interroge le service public geo.api.gouv.fr.</p>
         <p>Ces données servent exclusivement à organiser les collectes : créer votre compte, vous inscrire, vous envoyer la confirmation,
           le rappel la veille et les consignes, valider votre présence et calculer le bilan. Elles ne sont ni vendues ni utilisées à des fins publicitaires.</p>
         <p>Base légale : votre consentement, recueilli à la création du compte (article 6.1.a du RGPD).</p>
@@ -52,7 +56,7 @@ export default function MentionsLegales() {
 
       <S title="Vos droits">
         <p>Vous disposez d'un droit d'accès, de rectification et d'effacement de vos données. Depuis la page « Mon profil », vous pouvez
-          modifier votre prénom et supprimer votre compte à tout moment. Pour toute autre demande, écrivez à {CONTACT}.</p>
+          modifier votre prénom, renseigner ou retirer votre commune et supprimer votre compte à tout moment. Pour toute autre demande, écrivez à {CONTACT}.</p>
         <p>Vous pouvez aussi adresser une réclamation à la CNIL (cnil.fr).</p>
       </S>
 
