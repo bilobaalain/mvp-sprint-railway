@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { CalendarCheck, Scale, ShoppingBag, Users } from "lucide-react";
+import { CalendarCheck, Scale, ShoppingBag, Users, Star } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { CollecteCard } from "@/components/CollecteCard";
@@ -70,10 +70,15 @@ const Stats = ({ stats }) => (
 // Organisateur : ses collectes publiées (dont passées, pour valider présences et bilan).
 // Ramasseur : ses inscriptions à venir et son historique de participation.
 export default function MesCollectes() {
-  const { user, ready } = useAuth();
+  const { user, ready, setUser } = useAuth();
   const [list, setList] = useState(null);
+  const uid = user?.id;
 
-  useEffect(() => { if (user) api.get("/me/collectes").then((r) => setList(r.data)).catch(() => setList([])); }, [user]);
+  useEffect(() => {
+    if (!uid) return;
+    api.get("/me/collectes").then((r) => setList(r.data)).catch(() => setList([]));
+    api.get("/auth/me").then((r) => setUser(r.data)).catch(() => {}); // points à jour (#18)
+  }, [uid, setUser]);
 
   if (!ready) return null;
   if (!user) return <Navigate to="/connexion" replace state={{ from: "/mes-collectes" }} />;
@@ -91,6 +96,15 @@ export default function MesCollectes() {
         </h1>
         {orga && <p className="text-sm text-slate-500 mt-1">Ouvrez une collecte pour voir les inscrits, valider les présences et saisir le bilan.</p>}
       </div>
+      {!orga && (
+        <div data-testid="points-card" className="flex items-center gap-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 sm:p-5">
+          <span className="shrink-0 w-12 h-12 rounded-2xl bg-amber-400 text-white grid place-items-center"><Star size={24} fill="currentColor" /></span>
+          <div>
+            <p className="font-heading text-2xl font-bold text-[#0F172A]"><span data-testid="points-value">{user.points ?? 0}</span> points</p>
+            <p className="text-sm text-slate-600">+10 points à chaque collecte où l'organisateur valide votre présence.</p>
+          </div>
+        </div>
+      )}
       {!list ? <Skeleton className="h-40 rounded-2xl" /> : (
         <>
           <Section title="À venir" items={upcoming}

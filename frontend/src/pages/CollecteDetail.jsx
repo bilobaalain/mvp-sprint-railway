@@ -70,7 +70,7 @@ const RegisterBlock = ({ c, onDone }) => {
   const [busy, setBusy] = useState(false);
 
   if (c.statut !== "a_venir") {
-    if (c.est_present) return <p className="flex items-center gap-2 text-emerald-700 font-semibold"><CheckCircle2 size={20} /> Présence validée, merci !</p>;
+    if (c.est_present) return <p className="flex items-center gap-2 text-emerald-700 font-semibold"><CheckCircle2 size={20} /> Présence validée, merci ! +10 points</p>;
     return <p className="text-slate-500 text-sm">{c.statut === "en_cours" ? "La collecte est en cours." : "Cette collecte est terminée."}</p>;
   }
   if (c.est_inscrit) return (
@@ -183,7 +183,7 @@ const OrganizerPanel = ({ c, onDone }) => {
         </ul>
         {canPresences && parts?.length > 0 && (
           <Button data-testid="save-presences" disabled={busy === "p"} className="w-full rounded-full bg-[#0D9488] hover:bg-[#0b7f75] text-white"
-            onClick={() => run("p", () => api.put(`/collectes/${c.id}/presences`, { presents: [...checked] }), `${checked.size} présence(s) validée(s)`)}>
+            onClick={() => run("p", () => api.put(`/collectes/${c.id}/presences`, { presents: [...checked] }), `${checked.size} présence(s) validée(s). Les bénévoles présents gagnent 10 points et reçoivent un e-mail.`)}>
             {busy === "p" ? "Enregistrement…" : `Valider les présences (${checked.size})`}
           </Button>
         )}

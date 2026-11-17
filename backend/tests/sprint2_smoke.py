@@ -66,8 +66,20 @@ with TestClient(server.app) as c:
     parts = c.get(f"/api/collectes/{col['id']}/participants", headers=H(o["token"])).json()
     assert [p["prenom"] for p in parts] == ["ali"]
     assert c.put(f"/api/collectes/{col['id']}/presences", headers=H(o["token"]), json={"presents": [b["user"]["id"]]}).status_code == 422
+    nxt = c.post("/api/collectes", headers=H(o["token"]), json={"titre": "Collecte suivante", "lieu": "Plage", "commune": "Brest", "point_rdv": "Parking", "lat": 48.4, "lng": -4.4, "date": future, "heure_debut": "09:00", "heure_fin": "11:00", "places": 5}).json()
+    sent.clear()
     r = c.put(f"/api/collectes/{col['id']}/presences", headers=H(o["token"]), json={"presents": [a["user"]["id"]]}); assert r.json()["presences_validees"]
     print("#11 présences OK")
+    me = lambda: c.get("/api/auth/me", headers=H(a["token"])).json()["points"]
+    assert me() == 10, me(); print("#18 +10 points OK")
+    m = [x for x in sent if x[0] == a["user"]["email"]]
+    assert len(m) == 1 and "+10 points" in m[0][1] and "Collecte suivante" in m[0][2] and nxt["id"] in m[0][2], sent
+    c.put(f"/api/collectes/{col['id']}/presences", headers=H(o["token"]), json={"presents": [a["user"]["id"]]})
+    assert me() == 10
+    c.put(f"/api/collectes/{col['id']}/presences", headers=H(o["token"]), json={"presents": []}); assert me() == 0
+    c.put(f"/api/collectes/{col['id']}/presences", headers=H(o["token"]), json={"presents": [a["user"]["id"]]}); assert me() == 10
+    assert len([x for x in sent if x[0] == a["user"]["email"]]) == 1
+    print("#20 e-mail d'invitation OK (une seule fois, points cohérents)")
     r = c.put(f"/api/collectes/{col['id']}/bilan", headers=H(o["token"]), json={"kg": 12.34, "sacs": 4}); assert r.status_code == 200, r.text
     print("#12 bilan OK")
     d = c.get(f"/api/collectes/{col['id']}", headers=H(a["token"])).json()
@@ -75,7 +87,7 @@ with TestClient(server.app) as c:
     print("#13 bilan visible OK")
     assert c.delete(f"/api/collectes/{col['id']}/inscription", headers=H(a["token"])).status_code == 409
     mine = c.get("/api/me/collectes", headers=H(a["token"])).json(); assert [m["id"] for m in mine] == [col["id"]]
-    mine_o = c.get("/api/me/collectes", headers=H(o["token"])).json(); assert len(mine_o) == 1
+    mine_o = c.get("/api/me/collectes", headers=H(o["token"])).json(); assert len(mine_o) == 2
     print("mes collectes OK")
     # changement de mot de passe
     assert c.put("/api/me/password", headers=H(b["token"]), json={"ancien": "faux", "nouveau": "nouveau9"}).status_code == 401

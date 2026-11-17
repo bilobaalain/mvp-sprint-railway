@@ -1,5 +1,5 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Waves, LogOut, Plus, UserRound } from "lucide-react";
+import { Waves, LogOut, Plus, UserRound, Star } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 
@@ -30,6 +30,12 @@ export const Header = () => {
         )}
         {user ? (
           <div className="flex items-center gap-3">
+            {user.role === "ramasseur" && (
+              <Link to="/mes-collectes" data-testid="nav-points" title="Mes points"
+                className="flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-sm font-semibold text-amber-700">
+                <Star size={14} fill="currentColor" /> {user.points ?? 0}<span className="hidden sm:inline"> pts</span>
+              </Link>
+            )}
             <Link to="/profil" data-testid="nav-profile-link" title="Mon profil"
               className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-[#0D9488] transition-colors">
               <UserRound size={18} />

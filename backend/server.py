@@ -128,6 +128,8 @@ class UserOut(BaseModel):
     # Ticket #17 : un compte mineur reste « en_attente_parent » jusqu'à l'accord du parent
     statut: Literal["actif", "en_attente_parent"] = "actif"
     email_parent: Optional[str] = None
+    # Ticket #18 : points gagnés à chaque présence validée
+    points: int = 0
 
 
 class AuthOut(BaseModel):
@@ -304,7 +306,8 @@ async def require_user(user: Optional[dict] = Depends(optional_user)) -> dict:
 
 def user_out(u: dict) -> UserOut:
     return UserOut(id=u["id"], email=u["email"], prenom=u["prenom"], role=u["role"],
-                   statut=u.get("statut", "actif"), email_parent=u.get("email_parent"))
+                   statut=u.get("statut", "actif"), email_parent=u.get("email_parent"),
+                   points=max(0, u.get("points", 0)))
 
 
 MAJORITE = 18
@@ -453,6 +456,39 @@ def send_modification_email(email: str, prenom: str, c: dict, changes: list, mot
       <p><b>Ce qui change :</b></p><ul>{rows}</ul>
       <p>Si la nouvelle version ne vous convient plus, vous pouvez vous désinscrire depuis la fiche pour libérer votre place.</p>"""
         + _collecte_block(c)))
+
+
+POINTS_PAR_COLLECTE = 10
+
+
+# Ticket #20 : après validation de présence, remerciement + invitation aux collectes suivantes
+def send_merci_email(email: str, prenom: str, c: dict, total: int, prochaines: list) -> bool:
+    if prochaines:
+        items = "".join(
+            f"""<li style="margin-bottom:8px"><b>{escape(n['titre'])}</b> — {date.fromisoformat(n['date']).strftime('%d/%m/%Y')},
+            {n['heure_debut'].replace(':', 'h')}, {escape(n['lieu'])} ({escape(n['commune'])})<br/>
+            <a href="{FRONTEND_URL}/collectes/{n['id']}">Je m'inscris</a></li>""" for n in prochaines)
+        suite = f"<p>On remet ça ? Voici les prochaines collectes :</p><ul>{items}</ul>"
+    else:
+        suite = f'<p>Aucune nouvelle collecte n\'est encore programmée : <a href="{FRONTEND_URL}/collectes">surveillez la liste</a>, on vous y attend !</p>'
+    return send_email(email, f"Merci pour « {c['titre']} » ! +{POINTS_PAR_COLLECTE} points", _layout(
+        f"Merci {escape(prenom)} !",
+        f"""<p>Votre présence à la collecte <b>{escape(c['titre'])}</b> a été validée par l'organisateur.</p>
+      <p style="font-size:18px"><b>+{POINTS_PAR_COLLECTE} points</b> — vous en avez maintenant <b>{total}</b>.</p>""" + suite))
+
+
+async def prochaines_collectes(user_id: str, n: int = 3) -> list:
+    docs = await db.collectes.find({**upcoming_filter(), "inscrits": {"$ne": user_id}}, {"_id": 0}) \
+        .sort([("date", 1), ("heure_debut", 1)]).to_list(50)
+    return [d for d in docs if statut(d) == "a_venir" and len(d.get("inscrits", [])) < d["places"]][:n]
+
+
+async def remercier_presents(c: dict, user_ids: list) -> None:
+    for uid in user_ids:
+        u = await db.users.find_one({"id": uid}, {"_id": 0, "email": 1, "prenom": 1, "points": 1})
+        if u:
+            await asyncio.to_thread(send_merci_email, u["email"], u["prenom"], c, max(0, u.get("points", 0)),
+                                    await prochaines_collectes(uid))
 
 
 def send_reset_email(email: str, prenom: str, token: str) -> bool:
@@ -816,17 +852,33 @@ async def participants(collecte_id: str, user: dict = Depends(require_user)):
 
 
 @api_router.put("/collectes/{collecte_id}/presences", response_model=CollecteOut)
-async def valider_presences(collecte_id: str, body: PresencesIn, user: dict = Depends(require_user)):
+async def valider_presences(collecte_id: str, body: PresencesIn, background: BackgroundTasks,
+                            user: dict = Depends(require_user)):
     doc = await get_own_collecte(collecte_id, user)
     if statut(doc) == "a_venir":
         raise HTTPException(status_code=409, detail="Les présences se valident à partir du début de la collecte")
     inscrits = set(doc.get("inscrits", []))
     if any(p not in inscrits for p in body.presents):
         raise HTTPException(status_code=422, detail="Certaines personnes ne sont pas inscrites à cette collecte")
+    nouveaux = list(dict.fromkeys(body.presents))
+    avant = set(doc.get("presents") or [])
+    ajoutes = [p for p in nouveaux if p not in avant]
+    retires = [p for p in avant if p not in set(nouveaux)]
+    deja_remercies = set(doc.get("merci_envoyes") or [])
+    a_remercier = [p for p in ajoutes if p not in deja_remercies]
     updated = await db.collectes.find_one_and_update(
-        {"id": collecte_id}, {"$set": {"presents": list(dict.fromkeys(body.presents))}},
+        {"id": collecte_id},
+        {"$set": {"presents": nouveaux, "merci_envoyes": sorted(deja_remercies | set(a_remercier))}},
         projection={"_id": 0}, return_document=ReturnDocument.AFTER,
     )
+    # Ticket #18 : +10 points par présence validée (retirés si l'organisateur décoche)
+    if ajoutes:
+        await db.users.update_many({"id": {"$in": ajoutes}}, {"$inc": {"points": POINTS_PAR_COLLECTE}})
+    if retires:
+        await db.users.update_many({"id": {"$in": retires}}, {"$inc": {"points": -POINTS_PAR_COLLECTE}})
+    # Ticket #20 : un seul e-mail de remerciement par bénévole et par collecte
+    if a_remercier:
+        background.add_task(remercier_presents, updated, a_remercier)
     return collecte_out(updated, user["id"])
 
 
