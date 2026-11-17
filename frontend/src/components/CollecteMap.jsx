@@ -19,10 +19,18 @@ const Tiles = () => (
   />
 );
 
-export const CollecteMap = ({ collectes, activeId, className = "" }) => (
+// Repère du lieu de résidence (centre de la commune renseignée dans le profil)
+const homePin = L.divIcon({ className: "", html: '<span class="rade-home-pin">⌂</span>', iconSize: [30, 30], iconAnchor: [15, 15] });
+
+export const CollecteMap = ({ collectes, activeId, home, className = "" }) => (
   <div data-testid="collectes-map" className="h-full w-full">
   <MapContainer center={RADE_CENTER} zoom={12} scrollWheelZoom className={`h-full w-full ${className}`}>
     <Tiles />
+    {home && (
+      <Marker position={[home.lat, home.lng]} icon={homePin} zIndexOffset={-100}>
+        <Popup><p className="font-semibold">Chez vous · {home.commune}</p></Popup>
+      </Marker>
+    )}
     {collectes.map((c) => (
       <Marker key={c.id} position={[c.lat, c.lng]} icon={pin(c.complet ? "#EF4444" : "#0D9488", c.id === activeId)}>
         <Popup>

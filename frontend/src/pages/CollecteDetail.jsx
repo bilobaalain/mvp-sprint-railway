@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import {
-  MapPin, Clock, Flag, Package, Backpack, Users, CheckCircle2, ArrowLeft, ShieldAlert, Scale, ShoppingBag, ClipboardCheck,
+  MapPin, Navigation, Clock, Flag, Package, Backpack, Users, CheckCircle2, ArrowLeft, ShieldAlert, Scale, ShoppingBag, ClipboardCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, errMsg } from "@/lib/api";
 import { fmtDate, fmtHours } from "@/lib/format";
+import { distanceKm, fmtKm } from "@/lib/geo";
 import { useAuth } from "@/context/AuthContext";
 import { SingleMap } from "@/components/CollecteMap";
 import { PlacesBadge } from "@/components/CollecteCard";
@@ -249,6 +250,11 @@ export default function CollecteDetail() {
               </p>
             )}
             <Info icon={MapPin} label="Lieu" testid="collecte-detail-lieu">{c.lieu}, {c.commune}</Info>
+            {user?.residence && (
+              <Info icon={Navigation} label={`Distance depuis ${user.residence.commune}`} testid="collecte-detail-distance">
+                {fmtKm(distanceKm(user.residence, c))} à vol d'oiseau
+              </Info>
+            )}
             <Info icon={Clock} label="Horaire" testid="collecte-detail-horaire">{fmtHours(c)}</Info>
             <Info icon={Flag} label="Point de rendez-vous" testid="collecte-detail-rdv">{c.point_rdv}</Info>
             <Info icon={Package} label="Matériel fourni" testid="collecte-detail-equipment">{c.materiel_fourni}</Info>

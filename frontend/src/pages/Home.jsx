@@ -4,6 +4,8 @@ import { ArrowRight, Fish, Recycle, HeartHandshake } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { CollecteCard } from "@/components/CollecteCard";
+import { NearestCollecte } from "@/components/NearestCollecte";
+import { withDistances } from "@/lib/geo";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const HERO_IMG = "https://images.pexels.com/photos/11583513/pexels-photo-11583513.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
@@ -15,16 +17,22 @@ const ENJEUX = [
 ];
 
 const Upcoming = () => {
-  const [list, setList] = useState(null);
-  useEffect(() => { api.get("/collectes", { params: { limit: 3 } }).then((r) => setList(r.data)).catch(() => setList([])); }, []);
+  const { user } = useAuth();
+  const [all, setAll] = useState(null);
+  // Toute la liste est chargée pour pouvoir suggérer la collecte la plus proche du lieu de résidence
+  useEffect(() => { api.get("/collectes").then((r) => setAll(r.data)).catch(() => setAll([])); }, []);
 
-  if (!list) return <div className="grid md:grid-cols-3 gap-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}</div>;
-  if (!list.length) return <p data-testid="upcoming-empty" className="text-slate-500">Aucune collecte à venir pour le moment.</p>;
+  if (!all) return <div className="grid md:grid-cols-3 gap-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}</div>;
+  if (!all.length) return <p data-testid="upcoming-empty" className="text-slate-500">Aucune collecte à venir pour le moment.</p>;
+  const list = withDistances(all.slice(0, 3), user?.residence);
   return (
-    <div data-testid="upcoming-collectes-grid" className="grid md:grid-cols-3 gap-4">
-      {list.map((c, i) => (
-        <div key={c.id} className="rade-reveal" style={{ animationDelay: `${i * 90}ms` }}><CollecteCard c={c} /></div>
-      ))}
+    <div className="space-y-4">
+      {user?.residence && <NearestCollecte collectes={all} />}
+      <div data-testid="upcoming-collectes-grid" className="grid md:grid-cols-3 gap-4">
+        {list.map((c, i) => (
+          <div key={c.id} className="rade-reveal" style={{ animationDelay: `${i * 90}ms` }}><CollecteCard c={c} /></div>
+        ))}
+      </div>
     </div>
   );
 };
