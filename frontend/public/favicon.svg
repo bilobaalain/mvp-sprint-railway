@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs><clipPath id="r"><rect width="64" height="64" rx="14"/></clipPath></defs>
+  <g clip-path="url(#r)">
+    <!-- ciel -->
+    <rect width="64" height="64" fill="#BAE6FD"/>
+    <!-- mer -->
+    <path d="M0 34c5-3 9-3 14 0s9 3 14 0 9-3 14 0 9 3 14 0 6-2 8-1v31H0z" fill="#0D9488"/>
+    <!-- plage -->
+    <path d="M0 46c12-4 26-5 40-3s18 2 24 1v20H0z" fill="#F5D9A8"/>
+    <!-- sac poubelle -->
+    <path d="M24 28c-6 4-9 11-9 18 0 8 6 12 17 12s17-4 17-12c0-7-3-14-9-18z" fill="#1E293B"/>
+    <path d="M25 31c-3 3-5 8-5 13" stroke="#475569" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <!-- nœud du sac -->
+    <path d="M26 28l-3-5 9 3 9-3-3 5z" fill="#1E293B"/>
+    <rect x="27" y="25.5" width="10" height="3.5" rx="1.5" fill="#E05638"/>
+    <!-- main qui tient le sac -->
+    <path d="M24 22c-1-6 2-11 8-11s9 5 8 11c-1 2-3 3-5 2l-1-4h-4l-1 4c-2 1-4 0-5-2z" fill="#E8A87C"/>
+    <path d="M26 15v6M30 13v7M34 13v7M38 15v6" stroke="#C47E55" stroke-width="1.4" stroke-linecap="round"/>
+    <!-- poignet / manche -->
+    <rect x="27" y="0" width="10" height="13" fill="#E05638"/>
+    <rect x="27" y="10" width="10" height="3" fill="#C2452B"/>
+  </g>
+</svg>

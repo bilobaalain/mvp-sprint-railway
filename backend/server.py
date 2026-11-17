@@ -118,6 +118,9 @@ class ProfileIn(BaseModel):
 class Residence(BaseModel):
     commune: str = Field(min_length=1, max_length=100)
     code_postal: Optional[str] = Field(default=None, max_length=10)
+    code_insee: Optional[str] = Field(default=None, max_length=10)
+    # Point de référence utilisé : "mairie", "centre" ou un lieu précis (ex. "place de la Liberté")
+    repere: Optional[str] = Field(default=None, max_length=60)
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
 

@@ -4,7 +4,7 @@ import { Home as HomeIcon, LocateFixed, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { searchCommunes, communeAt } from "@/lib/geo";
+import { searchCommunes, communeAt, repereLabel } from "@/lib/geo";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -39,8 +39,8 @@ export const ResidenceForm = () => {
   const save = async (r) => {
     setBusy(true);
     try {
-      const { commune, code_postal, lat, lng } = r;
-      setUser((await api.put("/me/residence", { commune, code_postal, lat, lng })).data);
+      const { commune, code_postal, code_insee, repere, lat, lng } = r;
+      setUser((await api.put("/me/residence", { commune, code_postal, code_insee, repere, lat, lng })).data);
       setQ(""); setResults([]);
       toast.success(`Lieu de résidence : ${commune}`);
     } catch (err) { toast.error(errMsg(err)); } finally { setBusy(false); }
@@ -81,7 +81,10 @@ export const ResidenceForm = () => {
 
       {current ? (
         <div data-testid="residence-current" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-teal-50 px-4 py-3">
-          <span className="font-semibold text-[#0F172A]">{label(current)}</span>
+          <span>
+            <span className="block font-semibold text-[#0F172A]">{label(current)}</span>
+            <span data-testid="residence-repere" className="block text-xs text-slate-500">Distances calculées depuis {repereLabel(current)}</span>
+          </span>
           <Button type="button" variant="ghost" size="sm" data-testid="residence-remove" disabled={busy} onClick={remove} className="rounded-full text-slate-600">
             <X size={14} /> Retirer
           </Button>
