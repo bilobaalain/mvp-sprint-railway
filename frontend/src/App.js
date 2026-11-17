@@ -7,7 +7,8 @@ import Home from "@/pages/Home";
 import Collectes from "@/pages/Collectes";
 import CollecteDetail from "@/pages/CollecteDetail";
 import Publish from "@/pages/Publish";
-import { Signup, Login } from "@/pages/AuthPages";
+import { Signup, Login, ForgotPassword, ResetPassword } from "@/pages/AuthPages";
+import MesCollectes from "@/pages/MesCollectes";
 
 function App() {
   return (
@@ -23,10 +24,13 @@ function App() {
               <Route path="/publier" element={<Publish />} />
               <Route path="/inscription" element={<Signup />} />
               <Route path="/connexion" element={<Login />} />
+              <Route path="/mot-de-passe-oublie" element={<ForgotPassword />} />
+              <Route path="/reinitialiser" element={<ResetPassword />} />
+              <Route path="/mes-collectes" element={<MesCollectes />} />
             </Routes>
           </main>
           <footer className="border-t border-slate-200 py-8 text-center text-xs text-slate-500">
-            Ensemble pour sauver la rade · Rade de Brest · MVP Sprint 1
+            Ensemble pour sauver la rade · Rade de Brest · MVP Sprint 2
           </footer>
         </div>
         <Toaster position="bottom-right" richColors duration={4000} />

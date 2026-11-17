@@ -1,9 +1,12 @@
 import asyncio
+import hashlib
 import os
 import logging
+import secrets
 import uuid
 from contextlib import suppress
 from datetime import datetime, timezone, timedelta, date
+from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import List, Optional, Literal
@@ -24,6 +27,8 @@ load_dotenv(ROOT_DIR / '.env')
 client = AsyncIOMotorClient(os.environ['MONGO_URL'])
 db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+REMINDER_INTERVAL_S = int(os.environ.get("REMINDER_INTERVAL_S", "600"))
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -36,6 +41,10 @@ INDEXES: dict[str, list[IndexModel]] = {
     "collectes": [
         IndexModel([("id", ASCENDING)], name="id", unique=True),
         IndexModel([("date", ASCENDING), ("heure_debut", ASCENDING)], name="date_heure"),
+    ],
+    "password_resets": [
+        IndexModel([("token_hash", ASCENDING)], name="token_hash", unique=True),
+        IndexModel([("expires_at", ASCENDING)], name="ttl", expireAfterSeconds=0),
     ],
 }
 
@@ -52,6 +61,17 @@ async def ensure_indexes() -> None:
 app = FastAPI(title="Ensemble pour sauver la rade")
 api_router = APIRouter(prefix="/api")
 
+PARIS = ZoneInfo("Europe/Paris")
+
+# Ticket #8 : consignes communes à toutes les collectes (affichées sur la fiche et dans l'e-mail)
+CONSIGNES_SECURITE = [
+    "Portez des gants pendant toute la collecte et ne ramassez jamais d'objet coupant à mains nues.",
+    "Ne touchez pas aux seringues, bouteilles de gaz, fusées ou munitions : signalez-les à l'organisateur.",
+    "Restez hors des zones de vase et des rochers glissants ; surveillez la marée montante.",
+    "Ne laissez pas un mineur seul sur l'estran ; restez en vue du groupe.",
+    "Lavez-vous les mains après la collecte, avant de manger ou de boire.",
+]
+
 
 # ---------- Models ----------
 class RegisterIn(BaseModel):
@@ -64,6 +84,15 @@ class RegisterIn(BaseModel):
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
+
+
+class ForgotIn(BaseModel):
+    email: EmailStr
+
+
+class ResetIn(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+    password: str = Field(min_length=6)
 
 
 class UserOut(BaseModel):
@@ -95,6 +124,28 @@ class CollecteIn(BaseModel):
     description: str = Field(default="", max_length=2000)
 
 
+class BilanIn(BaseModel):
+    kg: float = Field(ge=0, le=100000)
+    sacs: int = Field(ge=0, le=10000)
+
+
+class BilanOut(BaseModel):
+    kg: float
+    sacs: int
+    participants: int
+
+
+class PresencesIn(BaseModel):
+    presents: List[str] = Field(default_factory=list, max_length=500)
+
+
+class ParticipantOut(BaseModel):
+    id: str
+    prenom: str
+    email: str
+    present: bool
+
+
 class CollecteOut(BaseModel):
     id: str
     titre: str
@@ -114,13 +165,42 @@ class CollecteOut(BaseModel):
     materiel_a_apporter: str
     description: str
     organisateur_prenom: str
+    consignes: List[str] = Field(default_factory=lambda: list(CONSIGNES_SECURITE))
+    statut: Literal["a_venir", "en_cours", "terminee"] = "a_venir"
+    presences_validees: bool = False
+    bilan: Optional[BilanOut] = None
     est_inscrit: bool = False
+    est_present: bool = False
     est_organisateur: bool = False
+
+
+# ---------- Date helpers ----------
+def _at(doc: dict, hm_key: str) -> datetime:
+    d = date.fromisoformat(doc["date"])
+    h, m = map(int, doc[hm_key].split(":"))
+    return datetime(d.year, d.month, d.day, h, m, tzinfo=PARIS)
+
+
+def start_dt(doc: dict) -> datetime:
+    return _at(doc, "heure_debut")
+
+
+def end_dt(doc: dict) -> datetime:
+    return _at(doc, "heure_fin")
+
+
+def statut(doc: dict) -> str:
+    now = datetime.now(PARIS)
+    if now < start_dt(doc):
+        return "a_venir"
+    return "en_cours" if now < end_dt(doc) else "terminee"
 
 
 def collecte_out(doc: dict, user_id: Optional[str] = None) -> CollecteOut:
     inscrits = doc.get("inscrits", [])
     restantes = max(doc["places"] - len(inscrits), 0)
+    presents = doc.get("presents")
+    bilan = doc.get("bilan")
     return CollecteOut(
         **{k: doc[k] for k in ("id", "titre", "lieu", "commune", "point_rdv", "lat", "lng", "date",
                                "heure_debut", "heure_fin", "places", "materiel_fourni",
@@ -129,7 +209,12 @@ def collecte_out(doc: dict, user_id: Optional[str] = None) -> CollecteOut:
         inscrits_count=len(inscrits),
         places_restantes=restantes,
         complet=restantes == 0,
+        statut=statut(doc),
+        presences_validees=presents is not None,
+        # Ticket #11 : seuls les présents validés comptent comme participants
+        bilan=BilanOut(kg=bilan["kg"], sacs=bilan["sacs"], participants=len(presents or [])) if bilan else None,
         est_inscrit=bool(user_id and user_id in inscrits),
+        est_present=bool(user_id and presents and user_id in presents),
         est_organisateur=bool(user_id and user_id == doc.get("organisateur_id")),
     )
 
@@ -161,36 +246,126 @@ def user_out(u: dict) -> UserOut:
     return UserOut(id=u["id"], email=u["email"], prenom=u["prenom"], role=u["role"])
 
 
+def hash_password(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+
+
+async def get_collecte_or_404(collecte_id: str) -> dict:
+    doc = await db.collectes.find_one({"id": collecte_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Collecte introuvable")
+    return doc
+
+
+async def get_own_collecte(collecte_id: str, user: dict) -> dict:
+    doc = await get_collecte_or_404(collecte_id)
+    if doc.get("organisateur_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Réservé à l'organisateur de la collecte")
+    return doc
+
+
 # ---------- Email ----------
-def send_welcome_email(email: str, prenom: str) -> bool:
-    html = f"""
-    <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0F172A">
-      <h2 style="color:#0D9488">Bienvenue {prenom} !</h2>
-      <p>Votre compte <b>Ensemble pour sauver la rade</b> est créé.</p>
-      <p>Retrouvez dès maintenant les prochaines collectes sur le littoral de la rade de Brest,
-      de Plouzané à Plougastel-Daoulas, et inscrivez-vous en un clic.</p>
-      <p>À très vite sur la plage,<br/>L'équipe Ensemble pour sauver la rade</p>
-    </div>"""
+def send_email(to: str, subject: str, html: str) -> bool:
     api_key = os.environ.get("RESEND_API_KEY", "")
     if not api_key:
-        logger.info("[EMAIL MOCK] Bienvenue -> %s (RESEND_API_KEY absent)", email)
+        logger.info("[EMAIL MOCK] %s -> %s (RESEND_API_KEY absent)", subject, to)
         return False
     try:
         r = requests.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"from": os.environ.get("SENDER_EMAIL", "onboarding@resend.dev"), "to": [email],
-                  "subject": "Bienvenue dans Ensemble pour sauver la rade", "html": html},
+            json={"from": os.environ.get("SENDER_EMAIL", "onboarding@resend.dev"), "to": [to],
+                  "subject": subject, "html": html},
             timeout=10,
         )
         r.raise_for_status()
         return True
     except requests.RequestException as exc:
-        logger.error("Welcome email failed for %s: %s", email, exc)
+        logger.error("Email '%s' failed for %s: %s", subject, to, exc)
         return False
 
 
-PARIS = ZoneInfo("Europe/Paris")
+def _layout(title: str, body: str) -> str:
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0F172A">
+      <h2 style="color:#0D9488">{title}</h2>
+      {body}
+      <p>À très vite sur la plage,<br/>L'équipe Ensemble pour sauver la rade</p>
+    </div>"""
+
+
+def _collecte_block(c: dict) -> str:
+    consignes = "".join(f"<li>{escape(x)}</li>" for x in CONSIGNES_SECURITE)
+    d = date.fromisoformat(c["date"]).strftime("%d/%m/%Y")
+    return f"""
+      <p><b>{escape(c['titre'])}</b><br/>
+      {d}, {c['heure_debut'].replace(':', 'h')} – {c['heure_fin'].replace(':', 'h')}<br/>
+      {escape(c['lieu'])}, {escape(c['commune'])}<br/>
+      Rendez-vous : {escape(c['point_rdv'])}</p>
+      <p><b>À apporter :</b> {escape(c.get('materiel_a_apporter') or '—')}<br/>
+      <b>Matériel fourni :</b> {escape(c.get('materiel_fourni') or '—')}</p>
+      <p><b>Consignes de sécurité</b></p><ul>{consignes}</ul>
+      <p><a href="{FRONTEND_URL}/collectes/{c['id']}">Voir la fiche de la collecte</a></p>"""
+
+
+def send_welcome_email(email: str, prenom: str) -> bool:
+    return send_email(email, "Bienvenue dans Ensemble pour sauver la rade", _layout(
+        f"Bienvenue {escape(prenom)} !",
+        """<p>Votre compte <b>Ensemble pour sauver la rade</b> est créé.</p>
+      <p>Retrouvez dès maintenant les prochaines collectes sur le littoral de la rade de Brest,
+      de Plouzané à Plougastel-Daoulas, et inscrivez-vous en un clic.</p>"""))
+
+
+def send_confirmation_email(email: str, prenom: str, c: dict) -> bool:
+    return send_email(email, f"Inscription confirmée : {c['titre']}", _layout(
+        f"C'est noté, {escape(prenom)} !",
+        "<p>Votre inscription à la collecte suivante est confirmée :</p>" + _collecte_block(c)
+        + "<p>Un empêchement ? Désinscrivez-vous depuis la fiche pour libérer votre place.</p>"))
+
+
+def send_reminder_email(email: str, prenom: str, c: dict) -> bool:
+    return send_email(email, f"Rappel : {c['titre']} demain", _layout(
+        f"C'est bientôt, {escape(prenom)} !",
+        "<p>Petit rappel : vous participez à cette collecte dans moins de 24 h.</p>" + _collecte_block(c)))
+
+
+def send_reset_email(email: str, prenom: str, token: str) -> bool:
+    link = f"{FRONTEND_URL}/reinitialiser?token={token}"
+    return send_email(email, "Réinitialisation de votre mot de passe", _layout(
+        f"Bonjour {escape(prenom)},",
+        f"""<p>Vous avez demandé à réinitialiser votre mot de passe.</p>
+      <p><a href="{link}">Choisir un nouveau mot de passe</a></p>
+      <p>Ce lien est valable 1 heure. Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.</p>"""))
+
+
+# ---------- Ticket #9 : rappel la veille ----------
+async def send_due_reminders() -> int:
+    now = datetime.now(PARIS)
+    window = {"date": {"$gte": now.date().isoformat(), "$lte": (now + timedelta(days=1)).date().isoformat()}}
+    sent = 0
+    async for c in db.collectes.find(window, {"_id": 0}):
+        if not (now < start_dt(c) <= now + timedelta(hours=24)):
+            continue
+        todo = [u for u in c.get("inscrits", []) if u not in c.get("rappels_envoyes", [])]
+        if not todo:
+            continue
+        users = await db.users.find({"id": {"$in": todo}}, {"_id": 0, "id": 1, "email": 1, "prenom": 1}).to_list(500)
+        for u in users:
+            await asyncio.to_thread(send_reminder_email, u["email"], u["prenom"], c)
+            sent += 1
+        await db.collectes.update_one({"id": c["id"]}, {"$addToSet": {"rappels_envoyes": {"$each": todo}}})
+    return sent
+
+
+async def reminder_loop() -> None:
+    while True:
+        try:
+            n = await send_due_reminders()
+            if n:
+                logger.info("Rappels J-1 envoyés : %d", n)
+        except Exception as exc:
+            logger.error("reminder_loop: %s", exc)
+        await asyncio.sleep(REMINDER_INTERVAL_S)
 
 
 def upcoming_filter() -> dict:
@@ -199,7 +374,7 @@ def upcoming_filter() -> dict:
     return {"$or": [{"date": {"$gt": today}}, {"date": today, "heure_fin": {"$gt": hm}}]}
 
 
-# ---------- Routes ----------
+# ---------- Routes : auth ----------
 @api_router.get("/")
 async def root():
     return {"message": "Ensemble pour sauver la rade API"}
@@ -215,7 +390,7 @@ async def register(body: RegisterIn, background: BackgroundTasks):
         "email": email,
         "prenom": body.prenom.strip(),
         "role": body.role,
-        "password_hash": bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode(),
+        "password_hash": hash_password(body.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user)
@@ -237,6 +412,36 @@ async def me(user: dict = Depends(require_user)):
     return user_out(user)
 
 
+# Ticket #3 : mot de passe oublié. Même réponse que le compte existe ou non (pas d'énumération des e-mails).
+@api_router.post("/auth/forgot-password")
+async def forgot_password(body: ForgotIn, background: BackgroundTasks):
+    user = await db.users.find_one({"email": body.email.lower()}, {"_id": 0, "id": 1, "email": 1, "prenom": 1})
+    if user:
+        token = secrets.token_urlsafe(32)
+        await db.password_resets.insert_one({
+            "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+            "user_id": user["id"],
+            "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+            "used": False,
+        })
+        background.add_task(send_reset_email, user["email"], user["prenom"], token)
+    return {"message": "Si un compte existe avec cet e-mail, un lien de réinitialisation vient d'être envoyé."}
+
+
+@api_router.post("/auth/reset-password")
+async def reset_password(body: ResetIn):
+    rec = await db.password_resets.find_one_and_update(
+        {"token_hash": hashlib.sha256(body.token.encode()).hexdigest(), "used": False,
+         "expires_at": {"$gt": datetime.now(timezone.utc)}},
+        {"$set": {"used": True}},
+    )
+    if not rec:
+        raise HTTPException(status_code=400, detail="Lien invalide ou expiré, refaites une demande")
+    await db.users.update_one({"id": rec["user_id"]}, {"$set": {"password_hash": hash_password(body.password)}})
+    return {"message": "Mot de passe modifié, vous pouvez vous connecter."}
+
+
+# ---------- Routes : collectes ----------
 @api_router.get("/collectes", response_model=List[CollecteOut])
 async def list_collectes(limit: int = 100, user: Optional[dict] = Depends(optional_user)):
     docs = await db.collectes.find(upcoming_filter(), {"_id": 0}) \
@@ -245,11 +450,17 @@ async def list_collectes(limit: int = 100, user: Optional[dict] = Depends(option
     return [collecte_out(d, uid) for d in docs]
 
 
+@api_router.get("/me/collectes", response_model=List[CollecteOut])
+async def my_collectes(user: dict = Depends(require_user)):
+    """Organisateur : ses collectes publiées. Ramasseur : ses inscriptions. Collectes passées incluses."""
+    query = {"organisateur_id": user["id"]} if user["role"] == "organisateur" else {"inscrits": user["id"]}
+    docs = await db.collectes.find(query, {"_id": 0}).sort([("date", -1), ("heure_debut", -1)]).to_list(500)
+    return [collecte_out(d, user["id"]) for d in docs]
+
+
 @api_router.get("/collectes/{collecte_id}", response_model=CollecteOut)
 async def get_collecte(collecte_id: str, user: Optional[dict] = Depends(optional_user)):
-    doc = await db.collectes.find_one({"id": collecte_id}, {"_id": 0})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Collecte introuvable")
+    doc = await get_collecte_or_404(collecte_id)
     return collecte_out(doc, user["id"] if user else None)
 
 
@@ -275,10 +486,8 @@ async def create_collecte(body: CollecteIn, user: dict = Depends(require_user)):
 
 
 @api_router.post("/collectes/{collecte_id}/inscription", response_model=CollecteOut)
-async def inscription(collecte_id: str, user: dict = Depends(require_user)):
-    doc = await db.collectes.find_one({"id": collecte_id}, {"_id": 0})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Collecte introuvable")
+async def inscription(collecte_id: str, background: BackgroundTasks, user: dict = Depends(require_user)):
+    doc = await get_collecte_or_404(collecte_id)
     if not await db.collectes.find_one({"id": collecte_id, **upcoming_filter()}, {"_id": 1}):
         raise HTTPException(status_code=409, detail="Cette collecte est terminée")
     if doc.get("organisateur_id") == user["id"]:
@@ -293,6 +502,66 @@ async def inscription(collecte_id: str, user: dict = Depends(require_user)):
     )
     if not updated:
         raise HTTPException(status_code=409, detail="Inscription refusée : la collecte est complète")
+    # Ticket #9 : confirmation immédiate, avec les consignes du ticket #8
+    background.add_task(send_confirmation_email, user["email"], user["prenom"], updated)
+    return collecte_out(updated, user["id"])
+
+
+# Ticket #10 : désinscription, la place se libère aussitôt
+@api_router.delete("/collectes/{collecte_id}/inscription", response_model=CollecteOut)
+async def desinscription(collecte_id: str, user: dict = Depends(require_user)):
+    doc = await get_collecte_or_404(collecte_id)
+    if user["id"] not in doc.get("inscrits", []):
+        raise HTTPException(status_code=409, detail="Vous n'êtes pas inscrit à cette collecte")
+    if statut(doc) != "a_venir":
+        raise HTTPException(status_code=409, detail="La collecte a déjà commencé")
+    updated = await db.collectes.find_one_and_update(
+        {"id": collecte_id},
+        {"$pull": {"inscrits": user["id"], "rappels_envoyes": user["id"]}},
+        projection={"_id": 0}, return_document=ReturnDocument.AFTER,
+    )
+    return collecte_out(updated, user["id"])
+
+
+# Ticket #11 : l'organisateur voit les inscrits et valide les présences
+@api_router.get("/collectes/{collecte_id}/participants", response_model=List[ParticipantOut])
+async def participants(collecte_id: str, user: dict = Depends(require_user)):
+    doc = await get_own_collecte(collecte_id, user)
+    ids = doc.get("inscrits", [])
+    presents = set(doc.get("presents") or [])
+    users = await db.users.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "prenom": 1, "email": 1}).to_list(500)
+    by_id = {u["id"]: u for u in users}
+    return [ParticipantOut(id=i, prenom=by_id[i]["prenom"], email=by_id[i]["email"], present=i in presents)
+            for i in ids if i in by_id]
+
+
+@api_router.put("/collectes/{collecte_id}/presences", response_model=CollecteOut)
+async def valider_presences(collecte_id: str, body: PresencesIn, user: dict = Depends(require_user)):
+    doc = await get_own_collecte(collecte_id, user)
+    if statut(doc) == "a_venir":
+        raise HTTPException(status_code=409, detail="Les présences se valident à partir du début de la collecte")
+    inscrits = set(doc.get("inscrits", []))
+    if any(p not in inscrits for p in body.presents):
+        raise HTTPException(status_code=422, detail="Certaines personnes ne sont pas inscrites à cette collecte")
+    updated = await db.collectes.find_one_and_update(
+        {"id": collecte_id}, {"$set": {"presents": list(dict.fromkeys(body.presents))}},
+        projection={"_id": 0}, return_document=ReturnDocument.AFTER,
+    )
+    return collecte_out(updated, user["id"])
+
+
+# Ticket #12 : saisie du bilan, seulement une fois la collecte terminée
+@api_router.put("/collectes/{collecte_id}/bilan", response_model=CollecteOut)
+async def saisir_bilan(collecte_id: str, body: BilanIn, user: dict = Depends(require_user)):
+    doc = await get_own_collecte(collecte_id, user)
+    if statut(doc) != "terminee":
+        raise HTTPException(status_code=409, detail="Le bilan se saisit une fois la collecte terminée")
+    updated = await db.collectes.find_one_and_update(
+        {"id": collecte_id},
+        {"$set": {"bilan": {"kg": round(body.kg, 1), "sacs": body.sacs,
+                            "saisi_le": datetime.now(timezone.utc).isoformat()}}},
+        projection={"_id": 0}, return_document=ReturnDocument.AFTER,
+    )
     return collecte_out(updated, user["id"])
 
 
@@ -341,11 +610,13 @@ async def seed_collectes() -> None:
 async def startup():
     app.state.index_task = asyncio.create_task(ensure_indexes())
     await seed_collectes()
+    app.state.reminder_task = asyncio.create_task(reminder_loop())
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    app.state.index_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await app.state.index_task
+    for task in (app.state.index_task, app.state.reminder_task):
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
     client.close()

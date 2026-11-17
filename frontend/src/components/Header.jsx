@@ -20,6 +20,7 @@ export const Header = () => {
         <nav className="hidden md:flex items-center gap-6">
           <NavLink to="/" end className={navCls} data-testid="nav-home">Accueil</NavLink>
           <NavLink to="/collectes" className={navCls} data-testid="nav-collectes">Collectes</NavLink>
+          {user && <NavLink to="/mes-collectes" className={navCls} data-testid="nav-mes-collectes">Mes collectes</NavLink>}
         </nav>
         {user?.role === "organisateur" && (
           <Button data-testid="nav-publish-btn" onClick={() => navigate("/publier")}
@@ -49,6 +50,7 @@ export const Header = () => {
       <nav className="md:hidden flex gap-6 px-4 pb-2">
         <NavLink to="/" end className={navCls} data-testid="nav-home-mobile">Accueil</NavLink>
         <NavLink to="/collectes" className={navCls} data-testid="nav-collectes-mobile">Collectes</NavLink>
+        {user && <NavLink to="/mes-collectes" className={navCls} data-testid="nav-mes-collectes-mobile">Mes collectes</NavLink>}
       </nav>
     </header>
   );
