@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link2, Check, Ban, Hourglass, XCircle, BadgeCheck } from "lucide-react";
+import { Link2, Check, Ban, Hourglass, XCircle, BadgeCheck, Undo2, MessageSquare, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, errMsg } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -127,6 +127,14 @@ export const EtatBanner = ({ c }) => {
       <div><p className="font-semibold">Cette collecte est annulée.</p>{c.motif_annulation && <p className="text-sm mt-1">Motif : {c.motif_annulation}</p>}</div>
     </div>
   );
+  if (c.validation === "en_attente" && c.retrait) return (
+    <div data-testid="banner-retrait" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 flex gap-3">
+      <Hourglass size={20} className="shrink-0 mt-0.5" />
+      <div><p className="font-semibold">{c.est_inscrit ? "Collecte suspendue le temps d'une vérification par l'association." : "L'association a retiré sa validation."}</p>
+        {c.motif_retrait && <p className="text-sm mt-1">Motif : {c.motif_retrait}</p>}
+        <p className="text-sm mt-1">{c.est_inscrit ? "Votre inscription est conservée." : "Elle n'est plus visible du public ni ouverte aux inscriptions jusqu'à une nouvelle validation."}</p></div>
+    </div>
+  );
   if (c.validation === "en_attente") return (
     <div data-testid="banner-en-attente" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 flex gap-3">
       <Hourglass size={20} className="shrink-0 mt-0.5" />
@@ -143,4 +151,63 @@ export const EtatBanner = ({ c }) => {
     </div>
   );
   return null;
+};
+
+// ---------- Association : retrait d'une validation ----------
+export const RetraitValidationButton = ({ c, onDone }) => (
+  <MotifDialog testid="retrait"
+    trigger={<Button variant="outline" data-testid="retrait-button" className="w-full sm:w-auto rounded-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"><Undo2 size={16} className="mr-2" /> Retirer la validation</Button>}
+    title="Retirer la validation ?"
+    description={`La collecte repassera « en attente » : invisible du public et fermée aux inscriptions. L'organisateur recevra votre motif par e-mail${c.inscrits_count > 0 ? ` et les ${c.inscrits_count} inscrit·e·s seront prévenu·e·s de la suspension` : ""}.`}
+    label="Motif (envoyé à l'organisateur)" placeholder="Ex. : arrêté préfectoral sur cette plage, merci de proposer un autre lieu"
+    required confirm="Retirer la validation"
+    onConfirm={async (motif) => {
+      onDone((await api.post(`/association/collectes/${c.id}/retrait`, { motif })).data);
+      toast.success("Validation retirée, l'organisateur est prévenu.");
+    }} />
+);
+
+// ---------- Association : commentaires (visibles de l'organisateur et de l'association) ----------
+const fmtLe = (iso) => new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+export const Commentaires = ({ c, admin, onDone }) => {
+  const [texte, setTexte] = useState("");
+  const [busy, setBusy] = useState(false);
+  const list = c.commentaires || [];
+  if (!admin && list.length === 0) return null;
+  const run = async (req, msg) => {
+    setBusy(true);
+    try { onDone((await req()).data); if (msg) toast.success(msg); return true; } catch (e) { toast.error(errMsg(e)); return false; } finally { setBusy(false); }
+  };
+  return (
+    <div data-testid="commentaires" className="space-y-3">
+      <p className="text-sm font-semibold text-[#0F172A] flex items-center gap-2"><MessageSquare size={16} className="text-[#0D9488]" /> Commentaires de l'association</p>
+      {list.length === 0 && <p className="text-sm text-slate-500">Aucun commentaire.</p>}
+      <ul className="space-y-2">
+        {list.map((x) => (
+          <li key={x.id} data-testid="commentaire" className="rounded-xl bg-white border border-slate-200 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-xs text-slate-500">{x.auteur_prenom} · {fmtLe(x.le)}</p>
+              {x.peut_supprimer && (
+                <button type="button" data-testid="commentaire-delete" disabled={busy} aria-label="Supprimer le commentaire"
+                  className="text-slate-400 hover:text-red-600" onClick={() => run(() => api.delete(`/association/collectes/${c.id}/commentaires/${x.id}`), "Commentaire supprimé")}>
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+            <p className="text-sm text-slate-800 whitespace-pre-line mt-1">{x.texte}</p>
+          </li>
+        ))}
+      </ul>
+      {admin && (
+        <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); run(() => api.post(`/association/collectes/${c.id}/commentaires`, { texte }), "Commentaire envoyé à l'organisateur").then((ok) => ok && setTexte("")); }}>
+          <Textarea data-testid="commentaire-input" rows={3} maxLength={1000} value={texte} onChange={(e) => setTexte(e.target.value)}
+            placeholder="Ex. : pensez à prévoir un bac pour le verre" />
+          <Button type="submit" data-testid="commentaire-submit" disabled={busy || !texte.trim()} size="sm" className="rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
+            Envoyer à l'organisateur
+          </Button>
+        </form>
+      )}
+    </div>
+  );
 };

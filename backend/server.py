@@ -193,6 +193,22 @@ class CollecteEditIn(CollecteIn):
     motif: str = Field(default="", max_length=500)
 
 
+class MotifIn(BaseModel):
+    motif: str = Field(default="", max_length=500)
+
+
+class CommentaireIn(BaseModel):
+    texte: str = Field(min_length=1, max_length=1000)
+
+
+class CommentaireOut(BaseModel):
+    id: str
+    auteur_prenom: str
+    texte: str
+    le: str
+    peut_supprimer: bool = False
+
+
 class ValidationIn(BaseModel):
     decision: Literal["valider", "refuser"]
     motif: str = Field(default="", max_length=500)
@@ -232,6 +248,10 @@ class CollecteOut(BaseModel):
     # Ticket #21 : les collectes créées avant ce ticket n'ont pas de champ « validation » → validées
     validation: Literal["en_attente", "validee", "refusee"] = "validee"
     motif_refus: Optional[str] = None
+    # Retrait de validation et commentaires de l'association (visibles de l'organisateur et de l'association)
+    motif_retrait: Optional[str] = None
+    retrait: bool = False
+    commentaires: Optional[List[CommentaireOut]] = None
     # Ticket #22 : annulation par l'organisateur
     annulee: bool = False
     motif_annulation: Optional[str] = None
@@ -303,7 +323,7 @@ def annulable(doc: dict) -> bool:
     return not doc.get("annulee") and statut(doc) == "a_venir"
 
 
-def collecte_out(doc: dict, user_id: Optional[str] = None) -> CollecteOut:
+def collecte_out(doc: dict, user_id: Optional[str] = None, admin: bool = False) -> CollecteOut:
     inscrits = doc.get("inscrits", [])
     restantes = max(doc["places"] - len(inscrits), 0)
     presents = doc.get("presents")
@@ -330,6 +350,11 @@ def collecte_out(doc: dict, user_id: Optional[str] = None) -> CollecteOut:
         annulee=bool(doc.get("annulee")),
         motif_annulation=(doc.get("annulation") or {}).get("motif"),
         annulable=orga and annulable(doc),
+        motif_retrait=doc.get("motif_retrait") if (orga or admin) and validation_of(doc) == "en_attente" else None,
+        retrait=bool(doc.get("motif_retrait")) and validation_of(doc) == "en_attente",
+        commentaires=[CommentaireOut(id=x["id"], auteur_prenom=x["auteur_prenom"], texte=x["texte"], le=x["le"],
+                                     peut_supprimer=admin)
+                      for x in doc.get("commentaires", [])] if (orga or admin) else None,
     )
 
 
@@ -573,6 +598,34 @@ def send_decision_email(email: str, prenom: str, c: dict, validee: bool, motif: 
         f"""<p>L'association n'a pas validé votre collecte <b>{escape(c['titre'])}</b>.</p>
       <p><b>Motif :</b> {escape(motif)}</p>
       <p>Vous pouvez la <a href="{FRONTEND_URL}/collectes/{c['id']}/modifier">modifier</a> : elle sera alors soumise à nouveau.</p>"""))
+
+
+def send_retrait_email(email: str, prenom: str, c: dict, motif: str) -> bool:
+    return send_email(email, f"Validation retirée : {c['titre']}", _layout(
+        f"Bonjour {escape(prenom)},",
+        f"""<p>L'association a <b>retiré la validation</b> de votre collecte <b>{escape(c['titre'])}</b>.
+      Elle n'est plus visible du public et les inscriptions sont suspendues jusqu'à une nouvelle validation.</p>
+      <p><b>Motif :</b> {escape(motif)}</p>
+      <p><a href="{FRONTEND_URL}/collectes/{c['id']}">Voir la collecte</a> ·
+      <a href="{FRONTEND_URL}/collectes/{c['id']}/modifier">la modifier</a></p>"""))
+
+
+def send_suspension_email(email: str, prenom: str, c: dict) -> bool:
+    d = date.fromisoformat(c["date"]).strftime("%d/%m/%Y")
+    return send_email(email, f"Collecte suspendue : {c['titre']}", _layout(
+        f"Bonjour {escape(prenom)},",
+        f"""<p>La collecte <b>{escape(c['titre'])}</b> du {d}, à laquelle vous êtes inscrit·e, est
+      <b>suspendue</b> le temps d'une nouvelle vérification par l'association.</p>
+      <p>Votre inscription est conservée. Vous serez prévenu·e si la collecte est annulée.</p>
+      <p><a href="{FRONTEND_URL}/collectes/{c['id']}">Voir la collecte</a></p>"""))
+
+
+def send_commentaire_email(email: str, prenom: str, c: dict, auteur: str, texte: str) -> bool:
+    return send_email(email, f"Commentaire de l'association : {c['titre']}", _layout(
+        f"Bonjour {escape(prenom)},",
+        f"""<p><b>{escape(auteur)}</b>, de l'association, a commenté votre collecte <b>{escape(c['titre'])}</b> :</p>
+      <blockquote style="border-left:3px solid #0D9488;margin:0;padding:8px 12px;background:#f0fdfa">{escape(texte)}</blockquote>
+      <p><a href="{FRONTEND_URL}/collectes/{c['id']}">Voir la collecte</a></p>"""))
 
 
 def send_annulation_email(email: str, prenom: str, c: dict, motif: str) -> bool:
@@ -846,9 +899,10 @@ async def get_collecte(collecte_id: str, user: Optional[dict] = Depends(optional
     # Ticket #21 : une collecte non validée n'est visible que de son organisateur et de l'association.
     # Une collecte annulée reste consultable (lien reçu par e-mail), avec la mention « annulée ».
     if validation_of(doc) != "validee" and not (
-            user and (user["id"] == doc.get("organisateur_id") or is_admin(user))):
+            user and (user["id"] == doc.get("organisateur_id") or is_admin(user)
+                      or user["id"] in doc.get("inscrits", []))):
         raise HTTPException(status_code=404, detail="Collecte introuvable")
-    return collecte_out(doc, user["id"] if user else None)
+    return collecte_out(doc, user["id"] if user else None, admin=is_admin(user))
 
 
 @api_router.post("/collectes", response_model=CollecteOut, status_code=201)
@@ -961,7 +1015,7 @@ async def annuler_collecte(collecte_id: str, body: AnnulationIn, background: Bac
 async def collectes_a_valider(user: dict = Depends(require_admin)):
     docs = await db.collectes.find({"validation": "en_attente", "annulee": {"$ne": True}, **upcoming_filter()},
                                    {"_id": 0}).sort([("date", 1), ("heure_debut", 1)]).to_list(500)
-    return [collecte_out(d, user["id"]) for d in docs]
+    return [collecte_out(d, user["id"], admin=True) for d in docs]
 
 
 @api_router.post("/association/collectes/{collecte_id}/validation", response_model=CollecteOut)
@@ -974,7 +1028,8 @@ async def valider_collecte(collecte_id: str, body: ValidationIn, background: Bac
     if body.decision == "refuser" and len(motif) < 5:
         raise HTTPException(status_code=422, detail="Indiquez le motif du refus : il sera envoyé à l'organisateur")
     fields = {"validation": "validee" if body.decision == "valider" else "refusee",
-              "validation_par": user["id"], "validation_le": datetime.now(timezone.utc).isoformat()}
+              "validation_par": user["id"], "validation_le": datetime.now(timezone.utc).isoformat(),
+              "motif_retrait": None}
     if body.decision == "refuser":
         fields["motif_refus"] = motif
     # Filtre sur « en_attente » : si deux membres de l'association décident en même temps, un seul passe
@@ -986,7 +1041,63 @@ async def valider_collecte(collecte_id: str, body: ValidationIn, background: Bac
     if orga:
         background.add_task(send_decision_email, orga["email"], orga["prenom"], updated,
                             body.decision == "valider", motif)
-    return collecte_out(updated, user["id"])
+    return collecte_out(updated, user["id"], admin=True)
+
+
+# Retrait d'une validation : la collecte redevient « en attente », invisible du public et fermée aux inscriptions
+@api_router.post("/association/collectes/{collecte_id}/retrait", response_model=CollecteOut)
+async def retirer_validation(collecte_id: str, body: MotifIn, background: BackgroundTasks,
+                             user: dict = Depends(require_admin)):
+    doc = await get_collecte_or_404(collecte_id)
+    if validation_of(doc) != "validee" or doc.get("annulee"):
+        raise HTTPException(status_code=409, detail="Seule une collecte validée et non annulée peut perdre sa validation")
+    if statut(doc) != "a_venir":
+        raise HTTPException(status_code=409, detail="La collecte a déjà commencé")
+    motif = body.motif.strip()
+    if len(motif) < 5:
+        raise HTTPException(status_code=422, detail="Indiquez le motif du retrait : il sera envoyé à l'organisateur")
+    res = await db.collectes.update_one(
+        {"id": collecte_id, "validation": {"$nin": ["en_attente", "refusee"]}},
+        {"$set": {"validation": "en_attente", "motif_retrait": motif},
+         "$push": {"historique_validation": {"action": "retrait", "par": user["id"], "motif": motif,
+                                             "le": datetime.now(timezone.utc).isoformat()}}})
+    if not res.modified_count:
+        raise HTTPException(status_code=409, detail="Cette collecte vient d'être traitée par quelqu'un d'autre")
+    updated = await get_collecte_or_404(collecte_id)
+    orga = await db.users.find_one({"id": doc.get("organisateur_id")}, {"_id": 0, "email": 1, "prenom": 1})
+    if orga:
+        background.add_task(send_retrait_email, orga["email"], orga["prenom"], updated, motif)
+    if updated.get("inscrits"):
+        inscrits = await db.users.find({"id": {"$in": updated["inscrits"]}}, {"_id": 0, "email": 1, "prenom": 1}).to_list(500)
+        for u in inscrits:
+            background.add_task(send_suspension_email, u["email"], u["prenom"], updated)
+    return collecte_out(updated, user["id"], admin=True)
+
+
+@api_router.post("/association/collectes/{collecte_id}/commentaires", response_model=CollecteOut)
+async def commenter_collecte(collecte_id: str, body: CommentaireIn, background: BackgroundTasks,
+                             user: dict = Depends(require_admin)):
+    doc = await get_collecte_or_404(collecte_id)
+    texte = body.texte.strip()
+    if not texte:
+        raise HTTPException(status_code=422, detail="Le commentaire est vide")
+    com = {"id": uuid.uuid4().hex, "auteur_id": user["id"], "auteur_prenom": user["prenom"], "texte": texte,
+           "le": datetime.now(timezone.utc).isoformat()}
+    updated = await db.collectes.find_one_and_update({"id": collecte_id}, {"$push": {"commentaires": com}},
+                                                     projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+    orga = await db.users.find_one({"id": doc.get("organisateur_id")}, {"_id": 0, "email": 1, "prenom": 1})
+    if orga and orga.get("email", "").lower() != user["email"].lower():
+        background.add_task(send_commentaire_email, orga["email"], orga["prenom"], updated, user["prenom"], texte)
+    return collecte_out(updated, user["id"], admin=True)
+
+
+@api_router.delete("/association/collectes/{collecte_id}/commentaires/{commentaire_id}", response_model=CollecteOut)
+async def supprimer_commentaire(collecte_id: str, commentaire_id: str, user: dict = Depends(require_admin)):
+    await get_collecte_or_404(collecte_id)
+    res = await db.collectes.update_one({"id": collecte_id}, {"$pull": {"commentaires": {"id": commentaire_id}}})
+    if not res.modified_count:
+        raise HTTPException(status_code=404, detail="Commentaire introuvable")
+    return collecte_out(await get_collecte_or_404(collecte_id), user["id"], admin=True)
 
 
 @api_router.post("/collectes/{collecte_id}/inscription", response_model=CollecteOut)

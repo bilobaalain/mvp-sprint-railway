@@ -10,7 +10,7 @@ import { distanceKm, fmtKm } from "@/lib/geo";
 import { useAuth } from "@/context/AuthContext";
 import { SingleMap } from "@/components/CollecteMap";
 import { PlacesBadge } from "@/components/CollecteCard";
-import { CopyLinkButton, CancelCollecteButton, ValidationDecision, EtatBanner } from "@/components/CollecteActions";
+import { CopyLinkButton, CancelCollecteButton, ValidationDecision, RetraitValidationButton, Commentaires, EtatBanner } from "@/components/CollecteActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -250,6 +250,16 @@ export default function CollecteDetail() {
               <p className="text-sm font-semibold text-[#0F172A]">Décision de l'association</p>
               <ValidationDecision c={c} onDone={setC} />
             </Card>
+          )}
+          {user?.admin && c.validation === "validee" && !c.annulee && c.statut === "a_venir" && (
+            <Card data-testid="admin-retrait" className="space-y-2">
+              <p className="text-sm font-semibold text-[#0F172A]">Association</p>
+              <p className="text-sm text-slate-600">Cette collecte est validée et publique.</p>
+              <RetraitValidationButton c={c} onDone={setC} />
+            </Card>
+          )}
+          {c.commentaires && (user?.admin || c.commentaires.length > 0) && (
+            <Card className="bg-slate-50"><Commentaires c={c} admin={!!user?.admin} onDone={setC} /></Card>
           )}
           <Bilan c={c} />
           <SingleMap c={c} />
