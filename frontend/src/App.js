@@ -13,7 +13,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <div className="min-h-screen bg-[#F8FAFC]">
+        <div className="min-h-screen bg-[#F8FAFC] overflow-x-hidden">
           <Header />
           <main>
             <Routes>
@@ -29,7 +29,7 @@ function App() {
             Ensemble pour sauver la rade · Rade de Brest · MVP Sprint 1
           </footer>
         </div>
-        <Toaster position="top-center" richColors />
+        <Toaster position="bottom-right" richColors duration={4000} />
       </AuthProvider>
     </BrowserRouter>
   );

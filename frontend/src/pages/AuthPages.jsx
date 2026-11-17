@@ -38,6 +38,7 @@ const useSubmit = (path, successMsg) => {
 };
 
 export const Signup = () => {
+  const location = useLocation();
   const [f, setF] = useState({ prenom: "", email: "", password: "", role: "ramasseur" });
   const { busy, submit } = useSubmit("/auth/register", (d) =>
     d.welcome_email_sent
@@ -67,13 +68,14 @@ export const Signup = () => {
         <Button type="submit" data-testid="signup-submit-button" disabled={busy} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
           {busy ? "Création…" : "Créer mon compte"}
         </Button>
-        <p className="text-sm text-center text-slate-500">Déjà un compte ? <Link to="/connexion" data-testid="signup-to-login-link" className="text-[#0D9488] font-semibold">Se connecter</Link></p>
+        <p className="text-sm text-center text-slate-500">Déjà un compte ? <Link to="/connexion" state={location.state} data-testid="signup-to-login-link" className="text-[#0D9488] font-semibold">Se connecter</Link></p>
       </form>
     </Shell>
   );
 };
 
 export const Login = () => {
+  const location = useLocation();
   const [f, setF] = useState({ email: "", password: "" });
   const { busy, submit } = useSubmit("/auth/login", (d) => `Bon retour ${d.user.prenom} !`);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -88,7 +90,7 @@ export const Login = () => {
         <Button type="submit" data-testid="login-submit-button" disabled={busy} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
           {busy ? "Connexion…" : "Se connecter"}
         </Button>
-        <p className="text-sm text-center text-slate-500">Pas encore de compte ? <Link to="/inscription" data-testid="login-to-signup-link" className="text-[#0D9488] font-semibold">Créer un compte</Link></p>
+        <p className="text-sm text-center text-slate-500">Pas encore de compte ? <Link to="/inscription" state={location.state} data-testid="login-to-signup-link" className="text-[#0D9488] font-semibold">Créer un compte</Link></p>
       </form>
     </Shell>
   );

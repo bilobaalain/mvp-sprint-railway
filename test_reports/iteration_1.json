@@ -1,0 +1,47 @@
+{
+  "summary": "Sprint 1 E2E tested (backend pytest 17/17 + Playwright UI). All 5 tickets (#1 publish, #6 detail, #2 signup/login, #4 home, #7 one-click inscription) work end to end. One testability bug fixed (publish-map-picker testid not rendered because react-leaflet MapContainer drops data-* props). One mobile header overflow found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/collectes & POST inscription", "issue": "'today' is computed in UTC, not Europe/Paris: from 00:00 to 01:00/02:00 local, a collecte dated today is still treated as yesterday (and vice versa). Use zoneinfo('Europe/Paris')."},
+      {"endpoint": "GET /api/collectes", "issue": "A collecte happening today stays listed after heure_fin, and inscription to it is still accepted (only the date is checked)."},
+      {"endpoint": "POST /api/collectes/{id}/inscription", "issue": "No role check: an organisateur can sign up to other organisateurs' collectes, and through the API to their own (the UI hides the button). Decide whether this is wanted."},
+      {"endpoint": "collectes", "issue": "No DELETE/PUT endpoint, so organisateurs cannot fix or cancel a collecte (and test data has to be removed straight from the database)."},
+      {"endpoint": "seed_collectes", "issue": "Seed dates are relative to the first startup and never refreshed, so on Railway the demo collectes will all expire within about 17 days and the home page will show none."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Header (mobile 390px)", "issue": "Header overflows: the logo text wraps onto 4 lines and the 'Créer un compte' button is cut off on the right (scrollWidth 404 > 390).", "selector": "[data-testid='nav-signup-btn']", "priority": "MEDIUM"},
+      {"component": "LocationPicker", "issue": "data-testid='publish-map-picker' was passed to react-leaflet MapContainer, which never puts it in the DOM. FIXED by wrapping it in a div. collectes-map and collecte-detail-map have the same problem and were not fixed.", "selector": "[data-testid='publish-map-picker']", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Logged-out register -> /connexion -> 'Créer un compte' link", "issue": "The location.state.from return path is lost when the user goes from login to signup, so after signup the user lands on /collectes instead of the collecte page.", "affected_selectors": ["[data-testid='login-to-signup-link']"]}
+    ],
+    "design_issues": [
+      {"screen": "Publish form", "issues": ["Date and time fields use the browser's native pickers (type=date/time, shown as mm/dd/yyyy and AM/PM for the US locale), not a shadcn Calendar or a French-format picker."]},
+      {"screen": "Toasts", "issues": ["Top-center toasts cover the header nav, and the signup welcome toast stays stacked while you go on to other actions."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_rade_sprint1.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Fix the mobile header overflow (shorter logo text or hide it below sm, smaller signup button)",
+    "Keep location.state.from when linking from Login to Signup (and back)",
+    "Wrap collectes-map and collecte-detail-map MapContainers in a div with the data-testid",
+    "Compute 'today' in Europe/Paris, and optionally hide or close collectes that are already over",
+    "Use a French-locale date picker (shadcn Calendar) instead of the native one"
+  ],
+  "critical_code_review_comments": [
+    "Inscription uses an atomic find_one_and_update with a $expr size<places guard, which is good and safe against races.",
+    "The register response sets welcome_email_sent from whether the key exists, not from the actual send result (the email is sent in a background task), so the UI can claim the email was sent when Resend failed.",
+    "CORS uses allow_credentials=True with origins '*'. Set CORS_ORIGINS explicitly for Railway.",
+    "The heure_fin <= heure_debut check is a string comparison. It works because of the ^\\d{2}:\\d{2}$ pattern, but values like 25:99 are accepted."
+  ],
+  "updated_files": ["/app/frontend/src/components/CollecteMap.jsx", "/app/backend/tests/test_rade_sprint1.py"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "95% (all flows pass; mobile header overflow)"},
+  "test_credentials": "/app/memory/test_credentials.md is empty (template only). Tests create their own test_*@example.com accounts and delete them afterwards.",
+  "seed_data_creation": "None. All TEST_ users and collectes were deleted by id afterwards, and the test sign-up on the seed 'Grand nettoyage du Moulin Blanc' was removed (back to 0/30). The 5 seed collectes are intact.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=... pytest tests/test_rade_sprint1.py (pytest.ini uses xdist). The tests write created ids to /tmp/rade_created_ids.txt and there is no delete API, so clean up through motor by id. UI flows checked: home with 3 cards, list with map markers, detail fields, logged-out redirect, signup ramasseur/organisateur, one-click register + persistence, full seed collecte disabled, publish-forbidden, publish with map click and the fin<debut toast, logout/login."
+}

@@ -4,9 +4,9 @@ import { fmtDay, fmtMonth, fmtHours } from "@/lib/format";
 
 export const PlacesBadge = ({ c }) =>
   c.complet ? (
-    <span data-testid={`complet-badge-${c.id}`} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-600">Complet</span>
+    <span data-testid={`complet-badge-${c.id}`} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-600 whitespace-nowrap">Complet</span>
   ) : (
-    <span data-testid={`places-badge-${c.id}`} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
+    <span data-testid={`places-badge-${c.id}`} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 whitespace-nowrap">
       {c.places_restantes} place{c.places_restantes > 1 ? "s" : ""} restante{c.places_restantes > 1 ? "s" : ""}
     </span>
   );
@@ -23,8 +23,8 @@ export const CollecteCard = ({ c, active, onHover }) => (
       <span className="text-[11px] uppercase tracking-wider text-slate-300">{fmtMonth(c.date)}</span>
     </div>
     <div className="min-w-0 flex-1 space-y-1.5">
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="font-heading font-semibold text-[#0F172A] group-hover:text-[#0D9488] transition-colors truncate">{c.titre}</h3>
+      <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+        <h3 className="font-heading font-semibold text-[#0F172A] group-hover:text-[#0D9488] transition-colors min-w-0">{c.titre}</h3>
         <PlacesBadge c={c} />
       </div>
       <p className="text-sm text-slate-600 flex items-center gap-1.5"><MapPin size={14} /> {c.lieu} · {c.commune}</p>

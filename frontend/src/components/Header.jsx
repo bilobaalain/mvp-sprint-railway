@@ -12,12 +12,10 @@ export const Header = () => {
 
   return (
     <header className="sticky top-0 z-[1000] backdrop-blur-md bg-white/90 border-b border-slate-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-6">
-        <Link to="/" data-testid="nav-logo" className="flex items-center gap-2 mr-auto">
-          <span className="w-9 h-9 rounded-xl bg-[#0F172A] text-white grid place-items-center"><Waves size={18} /></span>
-          <span className="font-heading font-bold text-[#0F172A] leading-tight text-sm sm:text-base">
-            Ensemble pour<br className="sm:hidden" /> sauver la rade
-          </span>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3 sm:gap-6">
+        <Link to="/" data-testid="nav-logo" className="flex items-center gap-2 mr-auto min-w-0">
+          <span className="shrink-0 w-9 h-9 rounded-xl bg-[#0F172A] text-white grid place-items-center"><Waves size={18} /></span>
+          <span className="hidden sm:inline font-heading font-bold text-[#0F172A] leading-tight">Ensemble pour sauver la rade</span>
         </Link>
         <nav className="hidden md:flex items-center gap-6">
           <NavLink to="/" end className={navCls} data-testid="nav-home">Accueil</NavLink>
@@ -39,10 +37,12 @@ export const Header = () => {
             </Button>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" data-testid="nav-login-btn" onClick={() => navigate("/connexion")}>Connexion</Button>
+          <div className="flex items-center gap-1 sm:gap-2">
+            <Button variant="ghost" data-testid="nav-login-btn" className="px-3" onClick={() => navigate("/connexion")}>Connexion</Button>
             <Button data-testid="nav-signup-btn" onClick={() => navigate("/inscription")}
-              className="rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">Créer un compte</Button>
+              className="rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white px-4">
+              <span className="sm:hidden">S'inscrire</span><span className="hidden sm:inline">Créer un compte</span>
+            </Button>
           </div>
         )}
       </div>

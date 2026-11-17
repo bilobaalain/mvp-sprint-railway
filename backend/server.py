@@ -5,6 +5,7 @@ import uuid
 from contextlib import suppress
 from datetime import datetime, timezone, timedelta, date
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import List, Optional, Literal
 
 import bcrypt
@@ -189,6 +190,15 @@ def send_welcome_email(email: str, prenom: str) -> bool:
         return False
 
 
+PARIS = ZoneInfo("Europe/Paris")
+
+
+def upcoming_filter() -> dict:
+    now = datetime.now(PARIS)
+    today, hm = now.date().isoformat(), now.strftime("%H:%M")
+    return {"$or": [{"date": {"$gt": today}}, {"date": today, "heure_fin": {"$gt": hm}}]}
+
+
 # ---------- Routes ----------
 @api_router.get("/")
 async def root():
@@ -229,8 +239,7 @@ async def me(user: dict = Depends(require_user)):
 
 @api_router.get("/collectes", response_model=List[CollecteOut])
 async def list_collectes(limit: int = 100, user: Optional[dict] = Depends(optional_user)):
-    today = datetime.now(timezone.utc).date().isoformat()
-    docs = await db.collectes.find({"date": {"$gte": today}}, {"_id": 0}) \
+    docs = await db.collectes.find(upcoming_filter(), {"_id": 0}) \
         .sort([("date", 1), ("heure_debut", 1)]).limit(min(max(limit, 1), 200)).to_list(200)
     uid = user["id"] if user else None
     return [collecte_out(d, uid) for d in docs]
@@ -248,7 +257,7 @@ async def get_collecte(collecte_id: str, user: Optional[dict] = Depends(optional
 async def create_collecte(body: CollecteIn, user: dict = Depends(require_user)):
     if user["role"] != "organisateur":
         raise HTTPException(status_code=403, detail="Seuls les organisateurs peuvent publier une collecte")
-    if body.date < datetime.now(timezone.utc).date():
+    if body.date < datetime.now(PARIS).date():
         raise HTTPException(status_code=422, detail="La date doit être aujourd'hui ou dans le futur")
     if body.heure_fin <= body.heure_debut:
         raise HTTPException(status_code=422, detail="L'heure de fin doit être après l'heure de début")
@@ -270,8 +279,10 @@ async def inscription(collecte_id: str, user: dict = Depends(require_user)):
     doc = await db.collectes.find_one({"id": collecte_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Collecte introuvable")
-    if doc["date"] < datetime.now(timezone.utc).date().isoformat():
+    if not await db.collectes.find_one({"id": collecte_id, **upcoming_filter()}, {"_id": 1}):
         raise HTTPException(status_code=409, detail="Cette collecte est terminée")
+    if doc.get("organisateur_id") == user["id"]:
+        raise HTTPException(status_code=409, detail="Vous organisez cette collecte")
     if user["id"] in doc.get("inscrits", []):
         raise HTTPException(status_code=409, detail="Vous êtes déjà inscrit à cette collecte")
     updated = await db.collectes.find_one_and_update(
@@ -309,7 +320,7 @@ SEED = [
 async def seed_collectes() -> None:
     if await db.collectes.count_documents({}) > 0:
         return
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(PARIS).date()
     docs = []
     for i, (titre, lieu, commune, rdv, lat, lng, days, hd, hf, places) in enumerate(SEED):
         docs.append({

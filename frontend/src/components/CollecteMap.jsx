@@ -20,7 +20,8 @@ const Tiles = () => (
 );
 
 export const CollecteMap = ({ collectes, activeId, className = "" }) => (
-  <MapContainer center={RADE_CENTER} zoom={12} scrollWheelZoom className={`h-full w-full ${className}`} data-testid="collectes-map">
+  <div data-testid="collectes-map" className="h-full w-full">
+  <MapContainer center={RADE_CENTER} zoom={12} scrollWheelZoom className={`h-full w-full ${className}`}>
     <Tiles />
     {collectes.map((c) => (
       <Marker key={c.id} position={[c.lat, c.lng]} icon={pin(c.complet ? "#EF4444" : "#0D9488", c.id === activeId)}>
@@ -34,6 +35,7 @@ export const CollecteMap = ({ collectes, activeId, className = "" }) => (
       </Marker>
     ))}
   </MapContainer>
+  </div>
 );
 
 const ClickCatcher = ({ onPick }) => {
@@ -42,16 +44,20 @@ const ClickCatcher = ({ onPick }) => {
 };
 
 export const LocationPicker = ({ value, onPick }) => (
-  <MapContainer center={value || RADE_CENTER} zoom={12} className="h-72 w-full rounded-2xl border border-slate-200" data-testid="publish-map-picker">
-    <Tiles />
-    <ClickCatcher onPick={onPick} />
-    {value && <Marker position={value} icon={pin("#E05638", true)} />}
-  </MapContainer>
+  <div data-testid="publish-map-picker">
+    <MapContainer center={value || RADE_CENTER} zoom={12} className="h-72 w-full rounded-2xl border border-slate-200">
+      <Tiles />
+      <ClickCatcher onPick={onPick} />
+      {value && <Marker position={value} icon={pin("#E05638", true)} />}
+    </MapContainer>
+  </div>
 );
 
 export const SingleMap = ({ c }) => (
-  <MapContainer center={[c.lat, c.lng]} zoom={14} className="h-64 w-full rounded-2xl border border-slate-200" data-testid="collecte-detail-map">
-    <Tiles />
-    <Marker position={[c.lat, c.lng]} icon={pin("#0D9488", true)} />
-  </MapContainer>
+  <div data-testid="collecte-detail-map">
+    <MapContainer center={[c.lat, c.lng]} zoom={14} className="h-64 w-full rounded-2xl border border-slate-200">
+      <Tiles />
+      <Marker position={[c.lat, c.lng]} icon={pin("#0D9488", true)} />
+    </MapContainer>
+  </div>
 );
