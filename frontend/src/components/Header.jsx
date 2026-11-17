@@ -21,6 +21,7 @@ export const Header = () => {
           <NavLink to="/" end className={navCls} data-testid="nav-home">Accueil</NavLink>
           <NavLink to="/collectes" className={navCls} data-testid="nav-collectes">Collectes</NavLink>
           {user && <NavLink to="/mes-collectes" className={navCls} data-testid="nav-mes-collectes">Mes collectes</NavLink>}
+          {user?.admin && <NavLink to="/association" className={navCls} data-testid="nav-association">À valider</NavLink>}
         </nav>
         {user?.role === "organisateur" && (
           <Button data-testid="nav-publish-btn" onClick={() => navigate("/publier")}
@@ -49,10 +50,12 @@ export const Header = () => {
           </div>
         )}
       </div>
-      <nav className="md:hidden flex gap-6 px-4 pb-2">
+      {/* 4 liens pour un admin : écart réduit pour tenir en 375 px (#15) */}
+      <nav className={`md:hidden flex ${user?.admin ? "gap-4" : "gap-6"} px-4 pb-2 whitespace-nowrap`}>
         <NavLink to="/" end className={navCls} data-testid="nav-home-mobile">Accueil</NavLink>
         <NavLink to="/collectes" className={navCls} data-testid="nav-collectes-mobile">Collectes</NavLink>
         {user && <NavLink to="/mes-collectes" className={navCls} data-testid="nav-mes-collectes-mobile">Mes collectes</NavLink>}
+        {user?.admin && <NavLink to="/association" className={navCls} data-testid="nav-association-mobile">À valider</NavLink>}
       </nav>
     </header>
   );

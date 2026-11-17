@@ -57,7 +57,11 @@ export default function Publish() {
     try {
       const body = { ...f, places: Number(f.places), lat: pos[0], lng: pos[1] };
       const r = edit ? await api.put(`/collectes/${id}`, { ...body, motif }) : await api.post("/collectes", body);
-      toast.success(edit ? (needMotif ? "Collecte modifiée. Les inscrits ont été prévenus par e-mail." : "Collecte modifiée.") : "Collecte publiée ! Elle apparaît sur la carte et dans la liste.");
+      // Ticket #21 : une nouvelle collecte (ou une collecte refusée puis corrigée) part en validation
+      toast.success(r.data.validation === "en_attente"
+        ? "Collecte envoyée à l'association : elle sera visible du public après validation."
+        : edit ? (needMotif ? "Collecte modifiée. Les inscrits ont été prévenus par e-mail." : "Collecte modifiée.")
+          : "Collecte publiée ! Elle apparaît sur la carte et dans la liste.");
       navigate(`/collectes/${r.data.id}`);
     } catch (err) { toast.error(errMsg(err)); } finally { setBusy(false); }
   };

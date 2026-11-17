@@ -79,8 +79,10 @@ export default function MesCollectes() {
   if (!user) return <Navigate to="/connexion" replace state={{ from: "/mes-collectes" }} />;
 
   const orga = user.role === "organisateur";
+  // À venir : y compris en attente, refusées et annulées (avec leur badge), pour que l'organisateur les suive.
+  // Historique (#14) : seulement les collectes qui ont vraiment eu lieu (validées, non annulées).
   const upcoming = (list || []).filter((c) => c.statut !== "terminee").reverse();
-  const past = (list || []).filter((c) => c.statut === "terminee");
+  const past = (list || []).filter((c) => c.statut === "terminee" && c.validation === "validee" && !c.annulee);
 
   return (
     <div data-testid="mes-collectes" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">

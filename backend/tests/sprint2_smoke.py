@@ -1,7 +1,10 @@
 # Test de fumée Sprint 2 sur base simulée : python backend/tests/sprint2_smoke.py backend
 import os, sys, re, asyncio
 from datetime import datetime, timedelta
-os.environ.update(MONGO_URL="mongodb://x", DB_NAME="t", JWT_SECRET="s"*40, CORS_ORIGINS="*", REMINDER_INTERVAL_S="3600")
+os.environ.update(MONGO_URL="mongodb://x", DB_NAME="t", JWT_SECRET="s"*40, CORS_ORIGINS="*", REMINDER_INTERVAL_S="3600",
+                  # Ticket #21 : collectes de ces organisateurs validées d'office (le circuit de validation
+                  # est testé dans tests/tickets_21_22_23_smoke.py)
+                  ADMIN_EMAILS="orga@x.fr,orga2@x.fr,orga3@x.fr")
 sys.path.insert(0, sys.argv[1])
 import mongomock_motor, motor.motor_asyncio
 motor.motor_asyncio.AsyncIOMotorClient = mongomock_motor.AsyncMongoMockClient
