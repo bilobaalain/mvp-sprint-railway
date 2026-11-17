@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Fish, Recycle, HeartHandshake } from "lucide-react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { CollecteCard } from "@/components/CollecteCard";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -29,6 +30,7 @@ const Upcoming = () => {
 };
 
 export default function Home() {
+  const { user } = useAuth();
   return (
     <div>
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-16 grid lg:grid-cols-12 gap-10 items-center">
@@ -44,9 +46,15 @@ export default function Home() {
             <Link to="/collectes" data-testid="hero-see-collectes-btn" className="inline-flex items-center gap-2 rounded-full bg-[#0F172A] text-white px-6 py-3 font-medium hover:bg-[#1e293b] transition-colors">
               Voir les collectes <ArrowRight size={16} />
             </Link>
-            <Link to="/inscription" data-testid="hero-signup-btn" className="inline-flex items-center rounded-full border border-slate-300 px-6 py-3 font-medium text-[#0F172A] hover:border-[#0D9488] hover:text-[#0D9488] transition-colors">
-              Créer mon compte
-            </Link>
+            {user ? (
+              <Link to="/mes-collectes" data-testid="hero-my-collectes-btn" className="inline-flex items-center rounded-full border border-slate-300 px-6 py-3 font-medium text-[#0F172A] hover:border-[#0D9488] hover:text-[#0D9488] transition-colors">
+                {user.role === "organisateur" ? "Mes collectes publiées" : "Mes inscriptions"}
+              </Link>
+            ) : (
+              <Link to="/inscription" data-testid="hero-signup-btn" className="inline-flex items-center rounded-full border border-slate-300 px-6 py-3 font-medium text-[#0F172A] hover:border-[#0D9488] hover:text-[#0D9488] transition-colors">
+                Créer mon compte
+              </Link>
+            )}
           </div>
         </div>
         <div className="lg:col-span-6 relative rade-reveal" style={{ animationDelay: "120ms" }}>

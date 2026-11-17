@@ -77,6 +77,11 @@ with TestClient(server.app) as c:
     mine = c.get("/api/me/collectes", headers=H(a["token"])).json(); assert [m["id"] for m in mine] == [col["id"]]
     mine_o = c.get("/api/me/collectes", headers=H(o["token"])).json(); assert len(mine_o) == 1
     print("mes collectes OK")
+    # changement de mot de passe
+    assert c.put("/api/me/password", headers=H(b["token"]), json={"ancien": "faux", "nouveau": "nouveau9"}).status_code == 401
+    assert c.put("/api/me/password", headers=H(b["token"]), json={"ancien": "secret1", "nouveau": "nouveau9"}).status_code == 200
+    assert c.post("/api/auth/login", json={"email": "bob@x.fr", "password": "nouveau9"}).status_code == 200
+    print("changement de mot de passe OK")
     # #16 RGPD
     r = c.post("/api/auth/register", json={"email": "z@x.fr", "password": "secret1", "prenom": "Z", "role": "ramasseur"}); assert r.status_code == 422
     assert c.patch("/api/me", headers=H(a["token"]), json={"prenom": "Alice"}).json()["prenom"] == "Alice"

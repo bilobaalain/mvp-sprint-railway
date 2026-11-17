@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { UserRound, Trash2 } from "lucide-react";
+import { UserRound, Trash2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { api, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -64,11 +64,48 @@ const DeleteAccount = ({ orga }) => {
   );
 };
 
+const ChangePassword = () => {
+  const empty = { ancien: "", nouveau: "", confirm: "" };
+  const [f, setF] = useState(empty);
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (f.nouveau !== f.confirm) return toast.error("Les deux nouveaux mots de passe ne correspondent pas");
+    setBusy(true);
+    try {
+      await api.put("/me/password", { ancien: f.ancien, nouveau: f.nouveau });
+      toast.success("Mot de passe modifié");
+      setF(empty);
+    } catch (err) { toast.error(errMsg(err)); } finally { setBusy(false); }
+  };
+
+  return (
+    <form onSubmit={submit} data-testid="password-form" className="rounded-3xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
+      <h2 className="font-heading text-lg font-semibold text-[#0F172A] flex items-center gap-2"><KeyRound size={18} className="text-[#0D9488]" /> Changer mon mot de passe</h2>
+      <div className="space-y-1.5"><Label htmlFor="pw-old">Mot de passe actuel</Label>
+        <Input id="pw-old" type="password" autoComplete="current-password" data-testid="password-old" value={f.ancien} onChange={set("ancien")} required /></div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div className="space-y-1.5"><Label htmlFor="pw-new">Nouveau</Label>
+          <Input id="pw-new" type="password" autoComplete="new-password" minLength={6} data-testid="password-new" value={f.nouveau} onChange={set("nouveau")} required /></div>
+        <div className="space-y-1.5"><Label htmlFor="pw-confirm">Confirmer</Label>
+          <Input id="pw-confirm" type="password" autoComplete="new-password" minLength={6} data-testid="password-confirm" value={f.confirm} onChange={set("confirm")} required /></div>
+      </div>
+      <Button type="submit" data-testid="password-save" disabled={busy} className="rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
+        {busy ? "Enregistrement…" : "Modifier le mot de passe"}
+      </Button>
+    </form>
+  );
+};
+
 export default function Profil() {
   const { user, ready, setUser, logout } = useAuth();
   const navigate = useNavigate();
   const [prenom, setPrenom] = useState(user?.prenom || "");
   const [busy, setBusy] = useState(false);
+  // Le profil est chargé après le premier rendu quand on ouvre /profil directement
+  useEffect(() => { if (user) setPrenom(user.prenom); }, [user]);
 
   if (!ready) return null;
   if (!user) return <Navigate to="/connexion" replace state={{ from: "/profil" }} />;
@@ -106,6 +143,8 @@ export default function Profil() {
           </Button>
         </div>
       </form>
+
+      <ChangePassword />
 
       <div className="rounded-3xl border border-slate-200 bg-white p-6 space-y-3 shadow-sm">
         <h2 className="font-heading text-lg font-semibold text-[#0F172A]">Mes données</h2>

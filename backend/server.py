@@ -100,6 +100,11 @@ class ProfileIn(BaseModel):
     prenom: str = Field(min_length=1, max_length=60)
 
 
+class PasswordChangeIn(BaseModel):
+    ancien: str
+    nouveau: str = Field(min_length=6)
+
+
 class DeleteAccountIn(BaseModel):
     password: str
 
@@ -274,24 +279,37 @@ async def get_own_collecte(collecte_id: str, user: dict) -> dict:
 
 
 # ---------- Email ----------
+def email_configured() -> bool:
+    return bool(os.environ.get("BREVO_API_KEY") or os.environ.get("RESEND_API_KEY"))
+
+
 def send_email(to: str, subject: str, html: str) -> bool:
-    api_key = os.environ.get("RESEND_API_KEY", "")
-    if not api_key:
-        logger.info("[EMAIL MOCK] %s -> %s (RESEND_API_KEY absent)", subject, to)
+    """Envoie via Brevo si BREVO_API_KEY est défini, sinon via Resend. Sans clé : simple log."""
+    sender = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+    sender_name = os.environ.get("SENDER_NAME", "Ensemble pour sauver la rade")
+    if os.environ.get("BREVO_API_KEY"):
+        provider, url = "Brevo", "https://api.brevo.com/v3/smtp/email"
+        headers = {"api-key": os.environ["BREVO_API_KEY"], "Content-Type": "application/json"}
+        payload = {"sender": {"email": sender, "name": sender_name}, "to": [{"email": to}],
+                   "subject": subject, "htmlContent": html}
+    elif os.environ.get("RESEND_API_KEY"):
+        provider, url = "Resend", "https://api.resend.com/emails"
+        headers = {"Authorization": f"Bearer {os.environ['RESEND_API_KEY']}", "Content-Type": "application/json"}
+        payload = {"from": f"{sender_name} <{sender}>", "to": [to], "subject": subject, "html": html}
+    else:
+        logger.info("[EMAIL MOCK] %s -> %s (aucune clé d'envoi configurée)", subject, to)
         return False
     try:
-        r = requests.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"from": os.environ.get("SENDER_EMAIL", "onboarding@resend.dev"), "to": [to],
-                  "subject": subject, "html": html},
-            timeout=10,
-        )
-        r.raise_for_status()
-        return True
+        r = requests.post(url, headers=headers, json=payload, timeout=10)
     except requests.RequestException as exc:
-        logger.error("Email '%s' failed for %s: %s", subject, to, exc)
+        logger.error("Email '%s' -> %s : %s injoignable (%s)", subject, to, provider, exc)
         return False
+    if r.status_code >= 300:
+        # Le corps de la réponse donne la vraie cause (domaine non validé, expéditeur non vérifié…)
+        logger.error("Email '%s' -> %s refusé par %s (%s) : %s", subject, to, provider, r.status_code, r.text[:300])
+        return False
+    logger.info("Email '%s' envoyé à %s via %s", subject, to, provider)
+    return True
 
 
 def _layout(title: str, body: str) -> str:
@@ -409,7 +427,7 @@ async def register(body: RegisterIn, background: BackgroundTasks):
     await db.users.insert_one(user)
     background.add_task(send_welcome_email, email, user["prenom"])
     return AuthOut(token=make_token(user["id"]), user=user_out(user),
-                   welcome_email_sent=bool(os.environ.get("RESEND_API_KEY")))
+                   welcome_email_sent=email_configured())
 
 
 @api_router.post("/auth/login", response_model=AuthOut)
@@ -433,6 +451,18 @@ async def update_profile(body: ProfileIn, user: dict = Depends(require_user)):
     await db.users.update_one({"id": user["id"]}, {"$set": {"prenom": prenom}})
     await db.collectes.update_many({"organisateur_id": user["id"]}, {"$set": {"organisateur_prenom": prenom}})
     return user_out({**user, "prenom": prenom})
+
+
+@api_router.put("/me/password")
+async def change_password(body: PasswordChangeIn, user: dict = Depends(require_user)):
+    full = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 1})
+    if not bcrypt.checkpw(body.ancien.encode(), full["password_hash"].encode()):
+        raise HTTPException(status_code=401, detail="Mot de passe actuel incorrect")
+    if body.ancien == body.nouveau:
+        raise HTTPException(status_code=422, detail="Le nouveau mot de passe doit être différent de l'actuel")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password_hash": hash_password(body.nouveau)}})
+    await db.password_resets.delete_many({"user_id": user["id"]})
+    return {"message": "Mot de passe modifié"}
 
 
 # Ticket #16 : suppression effective du compte (droit à l'effacement)
