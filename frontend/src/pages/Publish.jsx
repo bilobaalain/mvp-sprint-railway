@@ -49,13 +49,16 @@ export default function Publish() {
       <form data-testid="publish-collecte-form" onSubmit={submit} className="grid lg:grid-cols-2 gap-6 bg-white rounded-3xl border border-slate-200 p-6">
         <div className="space-y-4">
           <Field id="titre" label="Titre">{input("titre", { placeholder: "Nettoyage de la plage du Moulin Blanc" })}</Field>
-          <div className="grid grid-cols-2 gap-3">
+          {/* Ticket #15 : à 375 px, plusieurs champs côte à côte sont tronqués */}
+          <div className="grid sm:grid-cols-2 gap-3">
             <Field id="lieu" label="Lieu">{input("lieu", { placeholder: "Plage du Moulin Blanc" })}</Field>
             <Field id="commune" label="Commune">{input("commune", { placeholder: "Brest" })}</Field>
           </div>
           <Field id="point_rdv" label="Point de rendez-vous">{input("point_rdv", { placeholder: "Parking, près du poste de secours" })}</Field>
-          <div className="grid grid-cols-3 gap-3">
-            <Field id="date" label="Date">{input("date", { type: "date", min: new Date().toISOString().slice(0, 10) })}</Field>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="col-span-2 sm:col-span-1">
+              <Field id="date" label="Date">{input("date", { type: "date", min: new Date().toISOString().slice(0, 10) })}</Field>
+            </div>
             <Field id="heure_debut" label="Début">{input("heure_debut", { type: "time" })}</Field>
             <Field id="heure_fin" label="Fin">{input("heure_fin", { type: "time" })}</Field>
           </div>
