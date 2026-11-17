@@ -2,8 +2,12 @@ import { Link } from "react-router-dom";
 import { MapPin, Clock, Users } from "lucide-react";
 import { fmtDay, fmtMonth, fmtHours } from "@/lib/format";
 
+const STATUT = { en_cours: ["En cours", "bg-amber-50 text-amber-700"], terminee: ["Terminée", "bg-slate-100 text-slate-600"] };
+
 export const PlacesBadge = ({ c }) =>
-  c.complet ? (
+  STATUT[c.statut] ? (
+    <span data-testid={`statut-badge-${c.id}`} className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${STATUT[c.statut][1]}`}>{STATUT[c.statut][0]}</span>
+  ) : c.complet ? (
     <span data-testid={`complet-badge-${c.id}`} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-600 whitespace-nowrap">Complet</span>
   ) : (
     <span data-testid={`places-badge-${c.id}`} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 whitespace-nowrap">

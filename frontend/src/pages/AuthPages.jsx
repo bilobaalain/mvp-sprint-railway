@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const Shell = ({ title, subtitle, children }) => (
   <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-10">
@@ -37,24 +38,47 @@ const useSubmit = (path, successMsg) => {
   return { busy, submit };
 };
 
+// Ticket #17 : âge calculé à partir de la date de naissance déclarée
+const ageFrom = (iso) => {
+  if (!iso) return null;
+  const b = new Date(iso + "T00:00:00"), t = new Date();
+  return t.getFullYear() - b.getFullYear() - (t < new Date(t.getFullYear(), b.getMonth(), b.getDate()) ? 1 : 0);
+};
+
 export const Signup = () => {
   const location = useLocation();
-  const [f, setF] = useState({ prenom: "", email: "", password: "", role: "ramasseur" });
+  const [f, setF] = useState({ prenom: "", email: "", password: "", role: "ramasseur", consentement: false, date_naissance: "", email_parent: "" });
   const { busy, submit } = useSubmit("/auth/register", (d) =>
-    d.welcome_email_sent
-      ? `Bienvenue ${d.user.prenom} ! Un e-mail de bienvenue a été envoyé à ${d.user.email}.`
-      : `Bienvenue ${d.user.prenom} ! Compte créé (envoi d'e-mail non configuré).`);
+    d.user.statut === "en_attente_parent"
+      ? `Compte créé ! Un e-mail a été envoyé à ${d.user.email_parent} : tu pourras t'inscrire aux collectes dès que ton parent aura donné son accord.`
+      : d.welcome_email_sent
+        ? `Bienvenue ${d.user.prenom} ! Un e-mail de bienvenue a été envoyé à ${d.user.email}.`
+        : `Bienvenue ${d.user.prenom} ! Compte créé (envoi d'e-mail non configuré).`);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const age = ageFrom(f.date_naissance);
+  const mineur = age !== null && age < 18;
+  const orgaMineur = mineur && f.role === "organisateur";
+  const today = new Date().toISOString().slice(0, 10);
+  const payload = () => ({ ...f, email_parent: mineur ? f.email_parent : null });
 
   return (
     <Shell title="Créer un compte" subtitle="Moins d'une minute pour rejoindre la communauté.">
-      <form data-testid="signup-form" className="space-y-4" onSubmit={(e) => { e.preventDefault(); submit(f); }}>
+      <form data-testid="signup-form" className="space-y-4" onSubmit={(e) => { e.preventDefault(); submit(payload()); }}>
         <div className="space-y-1.5"><Label htmlFor="prenom">Prénom</Label>
           <Input id="prenom" data-testid="signup-input-prenom" value={f.prenom} onChange={set("prenom")} required /></div>
         <div className="space-y-1.5"><Label htmlFor="email">E-mail</Label>
           <Input id="email" type="email" data-testid="signup-input-email" value={f.email} onChange={set("email")} required /></div>
         <div className="space-y-1.5"><Label htmlFor="password">Mot de passe (6 caractères min.)</Label>
           <Input id="password" type="password" minLength={6} data-testid="signup-input-password" value={f.password} onChange={set("password")} required /></div>
+        <div className="space-y-1.5"><Label htmlFor="naissance">Date de naissance</Label>
+          <Input id="naissance" type="date" max={today} min="1900-01-01" data-testid="signup-input-birthdate" value={f.date_naissance} onChange={set("date_naissance")} required /></div>
+        {mineur && f.role === "ramasseur" && (
+          <div data-testid="signup-parent-block" className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2">
+            <p className="text-sm text-amber-900">Tu as moins de 18 ans : un parent devra valider ton inscription. Il recevra un e-mail avec un lien ; ton compte sera actif dès son accord.</p>
+            <Label htmlFor="email_parent">E-mail d'un parent</Label>
+            <Input id="email_parent" type="email" data-testid="signup-input-parent-email" value={f.email_parent} onChange={set("email_parent")} required className="bg-white" />
+          </div>
+        )}
         <div className="space-y-2">
           <Label>Je suis</Label>
           <RadioGroup value={f.role} onValueChange={(role) => setF({ ...f, role })} className="grid grid-cols-2 gap-3">
@@ -65,7 +89,14 @@ export const Signup = () => {
             ))}
           </RadioGroup>
         </div>
-        <Button type="submit" data-testid="signup-submit-button" disabled={busy} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
+        {orgaMineur && <p data-testid="signup-orga-minor" className="text-sm text-red-600">Il faut être majeur pour organiser une collecte. Tu peux t'inscrire comme ramasseur.</p>}
+        <label htmlFor="consentement" className="flex items-start gap-3 text-sm text-slate-600 cursor-pointer">
+          <Checkbox id="consentement" data-testid="signup-consent" className="mt-0.5" checked={f.consentement}
+            onCheckedChange={(v) => setF({ ...f, consentement: v === true })} />
+          <span>J'accepte que mes données (prénom, e-mail, date de naissance, inscriptions) soient utilisées pour organiser les collectes, conformément aux{" "}
+            <Link to="/mentions-legales" target="_blank" className="text-[#0D9488] font-semibold">mentions légales et à la politique de confidentialité</Link>.</span>
+        </label>
+        <Button type="submit" data-testid="signup-submit-button" disabled={busy || !f.consentement || orgaMineur} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
           {busy ? "Création…" : "Créer mon compte"}
         </Button>
         <p className="text-sm text-center text-slate-500">Déjà un compte ? <Link to="/connexion" state={location.state} data-testid="signup-to-login-link" className="text-[#0D9488] font-semibold">Se connecter</Link></p>
@@ -85,12 +116,87 @@ export const Login = () => {
       <form data-testid="login-form" className="space-y-4" onSubmit={(e) => { e.preventDefault(); submit(f); }}>
         <div className="space-y-1.5"><Label htmlFor="email">E-mail</Label>
           <Input id="email" type="email" data-testid="login-input-email" value={f.email} onChange={set("email")} required /></div>
-        <div className="space-y-1.5"><Label htmlFor="password">Mot de passe</Label>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Mot de passe</Label>
+            <Link to="/mot-de-passe-oublie" data-testid="login-forgot-link" className="text-xs text-[#0D9488] font-semibold">Mot de passe oublié ?</Link>
+          </div>
           <Input id="password" type="password" data-testid="login-input-password" value={f.password} onChange={set("password")} required /></div>
         <Button type="submit" data-testid="login-submit-button" disabled={busy} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
           {busy ? "Connexion…" : "Se connecter"}
         </Button>
         <p className="text-sm text-center text-slate-500">Pas encore de compte ? <Link to="/inscription" state={location.state} data-testid="login-to-signup-link" className="text-[#0D9488] font-semibold">Créer un compte</Link></p>
+      </form>
+    </Shell>
+  );
+};
+
+// Ticket #3 : demande de lien de réinitialisation
+export const ForgotPassword = () => {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const r = await api.post("/auth/forgot-password", { email });
+      setDone(r.data.message);
+    } catch (err) { toast.error(errMsg(err)); } finally { setBusy(false); }
+  };
+
+  return (
+    <Shell title="Mot de passe oublié" subtitle="Recevez un lien par e-mail pour en choisir un nouveau.">
+      {done ? (
+        <p data-testid="forgot-done" className="text-sm text-emerald-700 bg-emerald-50 rounded-xl p-4">{done}</p>
+      ) : (
+        <form data-testid="forgot-form" className="space-y-4" onSubmit={submit}>
+          <div className="space-y-1.5"><Label htmlFor="email">E-mail du compte</Label>
+            <Input id="email" type="email" data-testid="forgot-input-email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
+          <Button type="submit" data-testid="forgot-submit-button" disabled={busy} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
+            {busy ? "Envoi…" : "Envoyer le lien"}
+          </Button>
+        </form>
+      )}
+      <p className="text-sm text-center text-slate-500"><Link to="/connexion" className="text-[#0D9488] font-semibold">Retour à la connexion</Link></p>
+    </Shell>
+  );
+};
+
+export const ResetPassword = () => {
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const token = params.get("token") || "";
+  const [pw, setPw] = useState({ a: "", b: "" });
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (pw.a !== pw.b) return toast.error("Les deux mots de passe ne correspondent pas");
+    setBusy(true);
+    try {
+      const r = await api.post("/auth/reset-password", { token, password: pw.a });
+      toast.success(r.data.message);
+      navigate("/connexion");
+    } catch (err) { toast.error(errMsg(err)); } finally { setBusy(false); }
+  };
+
+  if (!token) return (
+    <Shell title="Lien incomplet" subtitle="Ce lien de réinitialisation n'est pas valide.">
+      <Link to="/mot-de-passe-oublie" className="text-[#0D9488] font-semibold text-sm">Refaire une demande</Link>
+    </Shell>
+  );
+  return (
+    <Shell title="Nouveau mot de passe" subtitle="Choisissez un mot de passe d'au moins 6 caractères.">
+      <form data-testid="reset-form" className="space-y-4" onSubmit={submit}>
+        <div className="space-y-1.5"><Label htmlFor="pw1">Nouveau mot de passe</Label>
+          <Input id="pw1" type="password" minLength={6} data-testid="reset-input-password" value={pw.a} onChange={(e) => setPw({ ...pw, a: e.target.value })} required /></div>
+        <div className="space-y-1.5"><Label htmlFor="pw2">Confirmer</Label>
+          <Input id="pw2" type="password" minLength={6} data-testid="reset-input-confirm" value={pw.b} onChange={(e) => setPw({ ...pw, b: e.target.value })} required /></div>
+        <Button type="submit" data-testid="reset-submit-button" disabled={busy} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
+          {busy ? "Enregistrement…" : "Enregistrer"}
+        </Button>
       </form>
     </Shell>
   );

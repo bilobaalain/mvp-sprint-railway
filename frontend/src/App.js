@@ -7,7 +7,13 @@ import Home from "@/pages/Home";
 import Collectes from "@/pages/Collectes";
 import CollecteDetail from "@/pages/CollecteDetail";
 import Publish from "@/pages/Publish";
-import { Signup, Login } from "@/pages/AuthPages";
+import { Signup, Login, ForgotPassword, ResetPassword } from "@/pages/AuthPages";
+import MesCollectes from "@/pages/MesCollectes";
+import Profil from "@/pages/Profil";
+import MentionsLegales from "@/pages/MentionsLegales";
+import AutorisationParentale from "@/pages/AutorisationParentale";
+import ParentPendingBanner from "@/components/ParentPendingBanner";
+import { Link } from "react-router-dom";
 
 function App() {
   return (
@@ -15,6 +21,7 @@ function App() {
       <AuthProvider>
         <div className="min-h-screen bg-[#F8FAFC] overflow-x-hidden">
           <Header />
+          <ParentPendingBanner />
           <main>
             <Routes>
               <Route path="/" element={<Home />} />
@@ -23,10 +30,17 @@ function App() {
               <Route path="/publier" element={<Publish />} />
               <Route path="/inscription" element={<Signup />} />
               <Route path="/connexion" element={<Login />} />
+              <Route path="/mot-de-passe-oublie" element={<ForgotPassword />} />
+              <Route path="/reinitialiser" element={<ResetPassword />} />
+              <Route path="/mes-collectes" element={<MesCollectes />} />
+              <Route path="/profil" element={<Profil />} />
+              <Route path="/mentions-legales" element={<MentionsLegales />} />
+              <Route path="/autorisation-parentale" element={<AutorisationParentale />} />
             </Routes>
           </main>
           <footer className="border-t border-slate-200 py-8 text-center text-xs text-slate-500">
-            Ensemble pour sauver la rade · Rade de Brest · MVP Sprint 1
+            Ensemble pour sauver la rade · Rade de Brest · MVP Sprint 2 ·{" "}
+            <Link to="/mentions-legales" data-testid="footer-legal-link" className="underline hover:text-[#0D9488]">Mentions légales et confidentialité</Link>
           </footer>
         </div>
         <Toaster position="bottom-right" richColors duration={4000} />
