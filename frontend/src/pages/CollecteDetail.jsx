@@ -225,8 +225,11 @@ export default function CollecteDetail() {
       <Link to={c.est_organisateur || c.est_inscrit ? "/mes-collectes" : "/collectes"} data-testid="detail-back-link" className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-[#0D9488]">
         <ArrowLeft size={16} /> {c.est_organisateur || c.est_inscrit ? "Mes collectes" : "Toutes les collectes"}
       </Link>
-      <div className="grid lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-7 space-y-6">
+      {/* Ticket #15 : sur mobile, la carte d'inscription vient juste après la présentation
+          (avant les consignes) ; sur grand écran, elle reste dans la colonne de droite. */}
+      {/* Rangée 2 en 1fr : si la colonne de droite est plus haute, l'espace en trop va sous les consignes */}
+      <div className="grid lg:grid-cols-12 lg:grid-rows-[auto_1fr] gap-x-8 gap-y-6">
+        <div className="lg:col-span-7 lg:col-start-1 lg:row-start-1 space-y-6">
           <div className="space-y-2">
             <p className="text-sm font-semibold text-[#0D9488] capitalize">{fmtDate(c.date)}</p>
             <h1 data-testid="collecte-detail-title" className="font-heading text-3xl sm:text-4xl font-bold tracking-tight text-[#0F172A]">{c.titre}</h1>
@@ -235,9 +238,8 @@ export default function CollecteDetail() {
           <Bilan c={c} />
           <SingleMap c={c} />
           {c.description && <p className="text-slate-700 leading-relaxed">{c.description}</p>}
-          <Consignes c={c} />
         </div>
-        <aside className="lg:col-span-5 space-y-6">
+        <aside className="lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:row-span-2 space-y-6">
           <Card className={`space-y-5 ${c.est_organisateur ? "" : "lg:sticky lg:top-24"}`}>
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-2 text-sm text-slate-600"><Users size={16} /> {c.inscrits_count}/{c.places} inscrits</span>
@@ -257,6 +259,9 @@ export default function CollecteDetail() {
           </Card>
           {c.est_organisateur && <OrganizerPanel c={c} onDone={setC} />}
         </aside>
+        <div className="lg:col-span-7 lg:col-start-1 lg:row-start-2 lg:self-start">
+          <Consignes c={c} />
+        </div>
       </div>
     </div>
   );

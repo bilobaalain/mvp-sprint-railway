@@ -15,7 +15,8 @@ export const PlacesBadge = ({ c }) =>
     </span>
   );
 
-export const CollecteCard = ({ c, active, onHover }) => (
+// `badge` remplace le badge places/statut (ex. : présence dans l'historique, ticket #14)
+export const CollecteCard = ({ c, active, onHover, badge }) => (
   <Link
     to={`/collectes/${c.id}`}
     data-testid={`collecte-card-${c.id}`}
@@ -29,7 +30,7 @@ export const CollecteCard = ({ c, active, onHover }) => (
     <div className="min-w-0 flex-1 space-y-1.5">
       <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
         <h3 className="font-heading font-semibold text-[#0F172A] group-hover:text-[#0D9488] transition-colors min-w-0">{c.titre}</h3>
-        <PlacesBadge c={c} />
+        {badge ?? <PlacesBadge c={c} />}
       </div>
       <p className="text-sm text-slate-600 flex items-center gap-1.5"><MapPin size={14} /> {c.lieu} · {c.commune}</p>
       <div className="flex gap-4 text-xs text-slate-500">
