@@ -1,0 +1,105 @@
+{
+  "app_identity": {
+    "name": "Rade Propre - Nettoyons Notre Littoral",
+    "tagline": "Plateforme citoyenne de gestion des collectes de déchets autour de la Rade",
+    "theme": "Light & Marine Organic (Deep Navy, Sage Green, Coral Accent)",
+    "language": "fr"
+  },
+  "typography": {
+    "primary_font": "Plus Jakarta Sans, sans-serif",
+    "heading_font": "Outfit, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-tight",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight",
+      "h3": "text-xl sm:text-2xl font-semibold",
+      "h4": "text-lg font-medium",
+      "body": "text-base leading-relaxed text-slate-700",
+      "caption": "text-xs font-semibold uppercase tracking-wider text-slate-500"
+    }
+  },
+  "colors": {
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "primary_navy": "#0F172A",
+    "ocean_blue": "#0284C7",
+    "marine_teal": "#0D9488",
+    "coral_accent": "#E05638",
+    "emerald_success": "#10B981",
+    "amber_warning": "#F59E0B",
+    "slate_muted": "#64748B",
+    "border_subtle": "#E2E8F0",
+    "badge_complet": "#EF4444"
+  },
+  "layout_and_grid": {
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "bento_hero": "grid grid-cols-1 lg:grid-cols-12 gap-8 items-center",
+    "collectes_split": "grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-5rem)]",
+    "map_panel": "lg:col-span-7 h-full rounded-2xl overflow-hidden border border-slate-200 shadow-sm",
+    "list_panel": "lg:col-span-5 h-full overflow-y-auto space-y-4 pr-2"
+  },
+  "components_and_features": {
+    "ticket_1_organisateur": {
+      "description": "Formulaire de publication de collecte avec sélection de position sur carte Leaflet interactive, date, horaire, nombre de places et matériel requis.",
+      "test_ids": {
+        "form": "publish-collecte-form",
+        "title_input": "collecte-input-titre",
+        "date_input": "collecte-input-date",
+        "horaire_input": "collecte-input-horaire",
+        "places_input": "collecte-input-places",
+        "materiel_input": "collecte-input-materiel",
+        "map_picker": "publish-map-picker",
+        "submit_button": "publish-collecte-submit"
+      }
+    },
+    "ticket_2_ramasseur_compte": {
+      "description": "Création de compte e-mail + mot de passe en <1 minute avec confirmation immédiate et simulation d'e-mail de bienvenue.",
+      "test_ids": {
+        "signup_form": "signup-form",
+        "email_input": "signup-input-email",
+        "password_input": "signup-input-password",
+        "submit_button": "signup-submit-button",
+        "welcome_toast": "welcome-email-toast"
+      }
+    },
+    "ticket_4_visiteur_accueil": {
+      "description": "Page d'accueil accessible sans compte : section de sensibilisation aux enjeux écologiques de la rade + grille des 3 prochaines collectes avec accès rapide.",
+      "test_ids": {
+        "enjeu_section": "enjeu-rade-section",
+        "upcoming_grid": "upcoming-collectes-grid",
+        "collecte_card_prefix": "collecte-card-"
+      }
+    },
+    "ticket_6_fiche_collecte": {
+      "description": "Fiche détaillée d'une collecte (lieu exact, point de RDV, horaire, matériel à prévoir/fourni, places restantes) accessible via modal ou vue dédiée.",
+      "test_ids": {
+        "modal": "collecte-detail-modal",
+        "rdv_point": "collecte-detail-rdv",
+        "spots_left": "collecte-detail-spots-left",
+        "equipment": "collecte-detail-equipment"
+      }
+    },
+    "ticket_7_inscription_un_clic": {
+      "description": "Bouton d'inscription en 1-clic pour les bénévoles avec mise à jour en temps réel des places et statut 'Complet' désactivant le bouton si spots=0.",
+      "test_ids": {
+        "register_button_prefix": "register-button-",
+        "full_badge_prefix": "complet-badge-"
+      }
+    }
+  },
+  "image_urls": {
+    "hero_cleanup": "https://images.unsplash.com/photo-1617953141905-b27fb1f17d88?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwzfHxtZWRpdGVycmFuZWFuJTIwaGFyYm91ciUyMGJheSUyMG9jZWFuJTIwY2xlYW51cCUyMHBsYXN0aWMlMjB3YXN0ZSUyMHZvbHVudGVlcnxlbnwwfHx8fDE3OTQ5MDEyNTd8MA&ixlib=rb-4.1.0&q=85",
+    "beach_volunteer": "https://images.pexels.com/photos/11583513/pexels-photo-11583513.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "waste_collecting": "https://images.pexels.com/photos/13727720/pexels-photo-13727720.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "harbour_coast": "https://images.unsplash.com/photo-1616680214084-22670de1bc82?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwyfHxtZWRpdGVycmFuZWFuJTIwaGFyYm91ciUyMGJheSUyMG9jZWFuJTIwY2xlYW51cCUyMHBsYXN0aWMlMjB3YXN0ZSUyMHZvbHVudGVlcnxlbnwwfHx8fDE3OTQ5MDEyNTd8MA&ixlib=rb-4.1.0&q=85"
+  },
+  "instructions_to_main_agent": [
+    "Construire l'application en React JS + Tailwind CSS + Lucide Icons + Leaflet (react-leaflet).",
+    "Utiliser le français pour tous les libellés de l'interface utilisateur.",
+    "Créer une navigation fluide avec onglets ou routes (Accueil / Enjeu, Carte & Collectes, Publier une collecte, Inscription/Connexion).",
+    "Fournir des données d'exemple réalistes autour de la Rade de Toulon (Anse Magaud, Plage du Mourillon, Cap Brun, Port de la Seyne, Saint-Mandrier, Presqu'île de Giens) pour alimenter immédiatement la carte et la liste.",
+    "Assurer que tous les éléments interactifs possèdent les attributs data-testid spécifiés pour les tests automatisés.",
+    "Ne pas utiliser de fond transparent sur le header fixe : appliquer un effet de verre dépoli 'backdrop-blur-md bg-white/90'.",
+    "Inclure une notification Sonner/Toast lors de la création de compte, de la publication de collecte et de l'inscription en 1-clic."
+  ]
+}
