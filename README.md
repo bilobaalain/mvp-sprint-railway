@@ -22,6 +22,8 @@ Site pour fédérer les bénévoles qui ramassent les déchets sur le littoral d
 | #12 | Organisateur : saisir le bilan (kg, sacs) une fois la collecte terminée | 2 |
 | #13 | Ramasseur : voir le bilan (kilos, participants) sur la fiche | 2 |
 
+Ticket #16 (Sprint 3, avancé) : consentement obligatoire à l'inscription, page Mentions légales et confidentialité, page « Mon profil » (modifier son prénom, supprimer son compte).
+
 Page « Mes collectes » : publiées (organisateur) ou inscriptions (ramasseur), passées incluses.
 
 ## Stack

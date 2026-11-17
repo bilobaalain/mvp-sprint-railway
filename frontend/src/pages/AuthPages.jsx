@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const Shell = ({ title, subtitle, children }) => (
   <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-10">
@@ -39,7 +40,7 @@ const useSubmit = (path, successMsg) => {
 
 export const Signup = () => {
   const location = useLocation();
-  const [f, setF] = useState({ prenom: "", email: "", password: "", role: "ramasseur" });
+  const [f, setF] = useState({ prenom: "", email: "", password: "", role: "ramasseur", consentement: false });
   const { busy, submit } = useSubmit("/auth/register", (d) =>
     d.welcome_email_sent
       ? `Bienvenue ${d.user.prenom} ! Un e-mail de bienvenue a été envoyé à ${d.user.email}.`
@@ -65,7 +66,13 @@ export const Signup = () => {
             ))}
           </RadioGroup>
         </div>
-        <Button type="submit" data-testid="signup-submit-button" disabled={busy} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
+        <label htmlFor="consentement" className="flex items-start gap-3 text-sm text-slate-600 cursor-pointer">
+          <Checkbox id="consentement" data-testid="signup-consent" className="mt-0.5" checked={f.consentement}
+            onCheckedChange={(v) => setF({ ...f, consentement: v === true })} />
+          <span>J'accepte que mes données (prénom, e-mail, inscriptions) soient utilisées pour organiser les collectes, conformément aux{" "}
+            <Link to="/mentions-legales" target="_blank" className="text-[#0D9488] font-semibold">mentions légales et à la politique de confidentialité</Link>.</span>
+        </label>
+        <Button type="submit" data-testid="signup-submit-button" disabled={busy || !f.consentement} size="lg" className="w-full rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white">
           {busy ? "Création…" : "Créer mon compte"}
         </Button>
         <p className="text-sm text-center text-slate-500">Déjà un compte ? <Link to="/connexion" state={location.state} data-testid="signup-to-login-link" className="text-[#0D9488] font-semibold">Se connecter</Link></p>

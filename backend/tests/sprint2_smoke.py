@@ -25,7 +25,7 @@ def patch_expr():
     cls.find_one_and_update = foau
 with TestClient(server.app) as c:
     patch_expr()
-    reg = lambda e, r: c.post("/api/auth/register", json={"email": e, "password": "secret1", "prenom": e[:3], "role": r}).json()
+    reg = lambda e, r: c.post("/api/auth/register", json={"email": e, "password": "secret1", "prenom": e[:3], "role": r, "consentement": True}).json()
     o = reg("orga@x.fr", "organisateur"); a = reg("alice@x.fr", "ramasseur"); b = reg("bob@x.fr", "ramasseur")
     # #3 reset
     sent.clear()
@@ -76,4 +76,14 @@ with TestClient(server.app) as c:
     assert c.delete(f"/api/collectes/{col['id']}/inscription", headers=H(a["token"])).status_code == 409
     mine = c.get("/api/me/collectes", headers=H(a["token"])).json(); assert [m["id"] for m in mine] == [col["id"]]
     mine_o = c.get("/api/me/collectes", headers=H(o["token"])).json(); assert len(mine_o) == 1
-    print("mes collectes OK — tout est vert")
+    print("mes collectes OK")
+    # #16 RGPD
+    r = c.post("/api/auth/register", json={"email": "z@x.fr", "password": "secret1", "prenom": "Z", "role": "ramasseur"}); assert r.status_code == 422
+    assert c.patch("/api/me", headers=H(a["token"]), json={"prenom": "Alice"}).json()["prenom"] == "Alice"
+    assert c.request("DELETE", "/api/me", headers=H(a["token"]), json={"password": "faux"}).status_code == 401
+    assert c.request("DELETE", "/api/me", headers=H(a["token"]), json={"password": "nouveau1"}).status_code == 200
+    assert c.get("/api/auth/me", headers=H(a["token"])).status_code == 401
+    d = c.get(f"/api/collectes/{col['id']}").json(); assert d["inscrits_count"] == 0 and d["bilan"]["participants"] == 1
+    assert c.request("DELETE", "/api/me", headers=H(o["token"]), json={"password": "secret1"}).status_code == 200
+    d = c.get(f"/api/collectes/{col['id']}").json(); assert d["organisateur_prenom"] == "Compte supprimé"
+    print("#16 consentement, profil, suppression OK — tout est vert")

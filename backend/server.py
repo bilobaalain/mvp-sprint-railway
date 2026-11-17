@@ -79,6 +79,7 @@ class RegisterIn(BaseModel):
     password: str = Field(min_length=6)
     prenom: str = Field(min_length=1, max_length=60)
     role: Literal["ramasseur", "organisateur"] = "ramasseur"
+    consentement: bool = False
 
 
 class LoginIn(BaseModel):
@@ -93,6 +94,14 @@ class ForgotIn(BaseModel):
 class ResetIn(BaseModel):
     token: str = Field(min_length=10, max_length=200)
     password: str = Field(min_length=6)
+
+
+class ProfileIn(BaseModel):
+    prenom: str = Field(min_length=1, max_length=60)
+
+
+class DeleteAccountIn(BaseModel):
+    password: str
 
 
 class UserOut(BaseModel):
@@ -382,6 +391,9 @@ async def root():
 
 @api_router.post("/auth/register", response_model=AuthOut)
 async def register(body: RegisterIn, background: BackgroundTasks):
+    # Ticket #16 : consentement obligatoire au traitement des données
+    if not body.consentement:
+        raise HTTPException(status_code=422, detail="Vous devez accepter les mentions légales et la politique de confidentialité")
     email = body.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="Un compte existe déjà avec cet e-mail")
@@ -392,6 +404,7 @@ async def register(body: RegisterIn, background: BackgroundTasks):
         "role": body.role,
         "password_hash": hash_password(body.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "consentement_le": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user)
     background.add_task(send_welcome_email, email, user["prenom"])
@@ -410,6 +423,39 @@ async def login(body: LoginIn):
 @api_router.get("/auth/me", response_model=UserOut)
 async def me(user: dict = Depends(require_user)):
     return user_out(user)
+
+
+@api_router.patch("/me", response_model=UserOut)
+async def update_profile(body: ProfileIn, user: dict = Depends(require_user)):
+    prenom = body.prenom.strip()
+    if not prenom:
+        raise HTTPException(status_code=422, detail="Le prénom est obligatoire")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"prenom": prenom}})
+    await db.collectes.update_many({"organisateur_id": user["id"]}, {"$set": {"organisateur_prenom": prenom}})
+    return user_out({**user, "prenom": prenom})
+
+
+# Ticket #16 : suppression effective du compte (droit à l'effacement)
+@api_router.delete("/me")
+async def delete_account(body: DeleteAccountIn, user: dict = Depends(require_user)):
+    full = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 1})
+    if not full or not bcrypt.checkpw(body.password.encode(), full["password_hash"].encode()):
+        raise HTTPException(status_code=401, detail="Mot de passe incorrect")
+    uid = user["id"]
+    # Collectes organisées : les futures sont supprimées, les passées sont anonymisées (le bilan reste visible)
+    now_filter = upcoming_filter()
+    await db.collectes.delete_many({"organisateur_id": uid, **now_filter})
+    await db.collectes.update_many({"organisateur_id": uid},
+                                   {"$set": {"organisateur_id": None, "organisateur_prenom": "Compte supprimé"}})
+    # Inscriptions : retrait partout ; dans les présences passées, l'identifiant est remplacé
+    # par un jeton anonyme pour que le nombre de participants du bilan reste juste.
+    await db.collectes.update_many({}, {"$pull": {"inscrits": uid, "rappels_envoyes": uid}})
+    async for c in db.collectes.find({"presents": uid}, {"_id": 0, "id": 1, "presents": 1}):
+        anon = [f"anonyme-{uuid.uuid4().hex[:8]}" if p == uid else p for p in c["presents"]]
+        await db.collectes.update_one({"id": c["id"]}, {"$set": {"presents": anon}})
+    await db.password_resets.delete_many({"user_id": uid})
+    await db.users.delete_one({"id": uid})
+    return {"message": "Votre compte et vos données personnelles ont été supprimés."}
 
 
 # Ticket #3 : mot de passe oublié. Même réponse que le compte existe ou non (pas d'énumération des e-mails).

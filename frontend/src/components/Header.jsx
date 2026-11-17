@@ -1,5 +1,5 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Waves, LogOut, Plus } from "lucide-react";
+import { Waves, LogOut, Plus, UserRound } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 
@@ -30,9 +30,11 @@ export const Header = () => {
         )}
         {user ? (
           <div className="flex items-center gap-3">
-            <span data-testid="nav-user-name" className="hidden sm:inline text-sm text-slate-600">
-              {user.prenom} · <span className="capitalize">{user.role}</span>
-            </span>
+            <Link to="/profil" data-testid="nav-profile-link" title="Mon profil"
+              className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-[#0D9488] transition-colors">
+              <UserRound size={18} />
+              <span data-testid="nav-user-name" className="hidden sm:inline">{user.prenom} · <span className="capitalize">{user.role}</span></span>
+            </Link>
             <Button variant="ghost" size="icon" data-testid="nav-logout-btn" onClick={() => { logout(); navigate("/"); }}>
               <LogOut size={18} />
             </Button>

@@ -9,6 +9,9 @@ import CollecteDetail from "@/pages/CollecteDetail";
 import Publish from "@/pages/Publish";
 import { Signup, Login, ForgotPassword, ResetPassword } from "@/pages/AuthPages";
 import MesCollectes from "@/pages/MesCollectes";
+import Profil from "@/pages/Profil";
+import MentionsLegales from "@/pages/MentionsLegales";
+import { Link } from "react-router-dom";
 
 function App() {
   return (
@@ -27,10 +30,13 @@ function App() {
               <Route path="/mot-de-passe-oublie" element={<ForgotPassword />} />
               <Route path="/reinitialiser" element={<ResetPassword />} />
               <Route path="/mes-collectes" element={<MesCollectes />} />
+              <Route path="/profil" element={<Profil />} />
+              <Route path="/mentions-legales" element={<MentionsLegales />} />
             </Routes>
           </main>
           <footer className="border-t border-slate-200 py-8 text-center text-xs text-slate-500">
-            Ensemble pour sauver la rade · Rade de Brest · MVP Sprint 2
+            Ensemble pour sauver la rade · Rade de Brest · MVP Sprint 2 ·{" "}
+            <Link to="/mentions-legales" data-testid="footer-legal-link" className="underline hover:text-[#0D9488]">Mentions légales et confidentialité</Link>
           </footer>
         </div>
         <Toaster position="bottom-right" richColors duration={4000} />
