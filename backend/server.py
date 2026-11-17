@@ -113,6 +113,15 @@ class ProfileIn(BaseModel):
     prenom: str = Field(min_length=1, max_length=60)
 
 
+# Lieu de résidence / d'intervention : uniquement la commune et le centre de la commune
+# (pas d'adresse précise, minimisation RGPD). Sert à calculer la distance jusqu'aux collectes.
+class Residence(BaseModel):
+    commune: str = Field(min_length=1, max_length=100)
+    code_postal: Optional[str] = Field(default=None, max_length=10)
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+
+
 class PasswordChangeIn(BaseModel):
     ancien: str
     nouveau: str = Field(min_length=6)
@@ -133,6 +142,7 @@ class UserOut(BaseModel):
     # Ticket #18 : points gagnés à chaque présence validée
     points: int = 0
     admin: bool = False  # Ticket #21 : membre de l'association (ADMIN_EMAILS)
+    residence: Optional[Residence] = None
 
 
 class AuthOut(BaseModel):
@@ -360,7 +370,7 @@ async def require_admin(user: dict = Depends(require_user)) -> dict:
 def user_out(u: dict) -> UserOut:
     return UserOut(id=u["id"], email=u["email"], prenom=u["prenom"], role=u["role"],
                    statut=u.get("statut", "actif"), email_parent=u.get("email_parent"),
-                   points=max(0, u.get("points", 0)), admin=is_admin(u))
+                   points=max(0, u.get("points", 0)), admin=is_admin(u), residence=u.get("residence"))
 
 
 MAJORITE = 18
@@ -689,6 +699,19 @@ async def update_profile(body: ProfileIn, user: dict = Depends(require_user)):
     await db.users.update_one({"id": user["id"]}, {"$set": {"prenom": prenom}})
     await db.collectes.update_many({"organisateur_id": user["id"]}, {"$set": {"organisateur_prenom": prenom}})
     return user_out({**user, "prenom": prenom})
+
+
+@api_router.put("/me/residence", response_model=UserOut)
+async def set_residence(body: Residence, user: dict = Depends(require_user)):
+    residence = {**body.model_dump(), "commune": body.commune.strip()}
+    await db.users.update_one({"id": user["id"]}, {"$set": {"residence": residence}})
+    return user_out({**user, "residence": residence})
+
+
+@api_router.delete("/me/residence", response_model=UserOut)
+async def delete_residence(user: dict = Depends(require_user)):
+    await db.users.update_one({"id": user["id"]}, {"$unset": {"residence": ""}})
+    return user_out({**user, "residence": None})
 
 
 @api_router.put("/me/password")
